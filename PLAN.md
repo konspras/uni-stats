@@ -71,6 +71,8 @@ The user approved starting with one generic Data explorer tab rather than specia
 
 One comparison dimension allows multiple selected categories; every other dimension has exactly one fixed category. No implicit summation is applied, so source totals and subcategories cannot be double-counted. Missing markers produce gaps; published zeros remain zero. The initial view shows Informatik/Bachelor at EPFL and ETHZ using student table `px-x-1502040100_105`, with all years available.
 
+The explorer now includes optional per-series indexing to the selected start period (start = 100), recalculated when the interval changes. Plot, tooltip and table switch together; stored source values are unchanged. Series with zero/missing baselines are excluded with a notice rather than rebased to a later year. Promotional interface copy has been removed at the user's request.
+
 The first version passed Python/HTTP tests and real-browser checks of the default values, filter/comparison changes, all 28 datasets and mobile layout. It is available at `http://localhost:8768`. Continue refining and expanding the interface together as the user learns the data. See [docs/FRONTEND.md](docs/FRONTEND.md).
 
 - Browse source datasets as published, using their original dimensions and labels.

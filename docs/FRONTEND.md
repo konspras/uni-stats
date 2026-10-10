@@ -8,6 +8,7 @@ The first frontend is a single Data explorer tab, served by `server.py` on port 
 - Every non-time dimension comes from the selected snapshot's metadata. Known dimension names have English interface labels; category labels remain as published in German. Unknown dimensions use their source names.
 - Choose one comparison dimension and one or more categories from it. Every other dimension has exactly one fixed selection. There is no implicit summation, aggregate category or cross-table mapping.
 - Select the published time range and any successful historical snapshot. A snapshot's own dictionaries interpret its codes; the latest successful snapshot is selected initially.
+- The optional **Normalize to start = 100** toggle divides each series by its own value in the first selected period and multiplies by 100. It applies to the plot, hover values and value table; source values remain available on table-cell hover and unchanged in SQLite. Changing the start period recalculates every baseline. A zero/missing baseline leaves that series unplotted with an explicit notice; it never substitutes a later year. Other valid series remain plotted. Missing subsequent observations stay gaps and subsequent zeros stay zero. The default and Reset view show source values.
 - Source markers remain visible in the raw-value table and produce plot gaps. Zero is numeric zero. The chart retains academic/calendar-year labels and the source period ordering.
 - Hover over the chart, or focus it and use arrow keys/Home/End, to inspect period values.
 - The source panel shows the full BFS title, source link, collection/catalog timestamps, original category dictionaries, source column comments and response metadata. Units are not guessed when the stored metadata does not explicitly supply them.
@@ -60,6 +61,7 @@ The unit uses this machine's repository path; adjust it if relocating. Collect d
 ```bash
 python3 -m unittest discover -s tests -v
 node --check web/app.js
+node tests/test_normalize.mjs
 ```
 
 The Python suite includes HTTP tests that bind an ephemeral local socket. Browser checks use Node 22+ and an isolated Chromium CDP port, with no extra package installation:

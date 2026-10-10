@@ -125,23 +125,32 @@ async function updatePlot() {
   }} finally {if (sequence === state.plotSequence) $('chart').setAttribute('aria-busy', 'false');}
 }
 function renderResults() {
-  const {data, detail} = state;
+  const detail = state.detail;
+  const data = $('normalize').checked ? normalizeSeries(state.data) : state.data;
+  state.plotData = data;
   $('plot-group').textContent = detail.group.toUpperCase();
   const subject = Object.entries(state.filters).find(([code]) => ['Fachrichtung', 'Fachbereich'].includes(code));
   $('plot-title').textContent = subject ? variable(subject[0]).valueTexts[variable(subject[0]).values.indexOf(subject[1])] : label(state.compare) + ' comparison';
   $('plot-context').textContent = summary();
   $('period-badge').textContent = data.periods[0] + ' — ' + data.periods.at(-1);
   $('legend').replaceChildren(); for (const [i, s] of data.series.entries()) {
-    const item = el('span', undefined, 'legend-item'); item.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label)); $('legend').append(item);
+    const item = el('span', undefined, 'legend-item'); item.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label + (s.normalization_issue ? ' (no baseline)' : ''))); $('legend').append(item);
   }
+  const unavailable = data.series.filter(s => s.normalization_issue);
+  $('normalization-note').hidden = !unavailable.length;
+  $('normalization-note').textContent = unavailable.length ? 'Cannot normalize ' + unavailable.map(s => s.label).join(', ') +
+    ': the value in ' + data.periods[0] + ' is zero or missing. Select another start year.' : '';
+  $('value-note').textContent = data.normalized ? data.periods[0] + ' = 100 for each series. Missing values remain gaps.' : 'Missing values are gaps; source zeros remain zero.';
+  $('table-description').textContent = data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its source value.' : 'The values exactly as published.';
   drawChart(data);
   const table = $('values-table'), head = el('tr'); head.append(el('th', 'Period'));
   for (const s of data.series) {const th = el('th', s.label); th.scope = 'col'; head.append(th);} head.firstChild.scope = 'col';
   table.querySelector('thead').replaceChildren(head); const body = table.querySelector('tbody'); body.replaceChildren();
   for (let j = data.periods.length - 1; j >= 0; j--) {
     const row = el('tr'); row.append(el('td', data.periods[j]));
-    for (const s of data.series) {const point = s.points[j]; const cell = el('td', point.raw_value ?? '—', point.value === null ? 'missing' : '');
-      if (point.value === null) cell.title = point.raw_value === null ? 'No published observation' : 'Source missing-value marker'; row.append(cell);}
+    for (const s of data.series) {const point = s.points[j]; const cell = el('td', data.normalized ? number(point.value) : point.raw_value ?? '—', point.value === null ? 'missing' : '');
+      if (data.normalized) cell.title = 'Source value: ' + (point.raw_value ?? 'not published') + (s.normalization_issue ? '; starting value is zero or missing' : '');
+      else if (point.value === null) cell.title = point.raw_value === null ? 'No published observation' : 'Source missing-value marker'; row.append(cell);}
     body.append(row);
   }
   $('table-count').textContent = data.periods.length + ' periods · ' + data.series.length + ' lines';
@@ -149,8 +158,9 @@ function renderResults() {
 function svgNode(tag, attributes = {}, text) {const node = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value); if (text !== undefined) node.textContent = text; return node;}
 function drawChart(data) {
   const root = $('chart'); root.replaceChildren();
+  root.onkeydown = null; root.onblur = null; root.removeAttribute('tabindex'); root.removeAttribute('aria-label');
   const numbers = data.series.flatMap(s => s.points.map(p => p.value)).filter(v => v !== null);
-  if (!numbers.length) {root.append(el('div', 'No numeric values in this selection. Source markers are shown in the table below.', 'chart-message')); return;}
+  if (!numbers.length) {root.append(el('div', data.normalized ? 'No series has a nonzero starting value in ' + data.periods[0] + '.' : 'No numeric values in this selection. Source markers are shown in the table below.', 'chart-message')); return;}
   const narrow = window.matchMedia('(max-width:720px)').matches;
   const width = narrow ? 520 : 860, height = 360, left = 65, right = 22, top = 25, bottom = 49;
   const plotWidth = width - left - right, plotHeight = height - top - bottom;
@@ -162,7 +172,7 @@ function drawChart(data) {
   const y = value => top + (max - value) / (max - min) * plotHeight;
   const svg = svgNode('svg', {viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': data.measure + ': ' + data.series.map(s => s.label).join(', ')});
   svg.append(svgNode('title', {}, data.measure));
-  svg.append(svgNode('text', {x: left, y: 11, class: 'axis-title'}, 'Source value'));
+  svg.append(svgNode('text', {x: left, y: 11, class: 'axis-title'}, data.normalized ? 'Index (' + data.periods[0] + ' = 100)' : 'Source value'));
   for (let value = min; value <= max + niceStep / 100; value += niceStep) {
     svg.append(svgNode('line', {x1: left, x2: width - right, y1: y(value), y2: y(value), class: 'grid-line'}));
     svg.append(svgNode('text', {x: left - 12, y: y(value) + 3, 'text-anchor': 'end'}, number(value)));
@@ -192,7 +202,8 @@ function drawChart(data) {
     tooltip.replaceChildren(el('strong', data.periods[inspected]));
     for (const [i, s] of data.series.entries()) {
       const point = s.points[inspected], row = el('div', undefined, 'tooltip-row'), name = el('span');
-      name.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label)); row.append(name, el('b', point.value === null ? point.raw_value ?? '—' : number(point.value))); tooltip.append(row);
+      name.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label)); row.append(name, el('b', point.value === null ? data.normalized ? '—' : point.raw_value ?? '—' : number(point.value)));
+      row.title = 'Source value: ' + (point.raw_value ?? 'not published'); tooltip.append(row);
       if (point.value !== null) hover.append(svgNode('circle', {cx: x(inspected), cy: y(point.value), r: 4, fill: colors[i % colors.length], class: 'point'}));
     }
     tooltip.hidden = false; const ratio = root.clientWidth / width;
@@ -213,10 +224,11 @@ $('compare').addEventListener('change', () => {
 });
 $('select-all').addEventListener('click', () => {if (state.detail) {state.values = [...variable(state.compare).values]; renderCategories(); updatePlot();}});
 for (const id of ['measure', 'from', 'to']) $(id).addEventListener('change', updatePlot);
-$('reset').addEventListener('click', () => {const id = state.catalog.find(d => d.id === 'px-x-1502040100_105')?.id || state.catalog[0]?.id; if (id) {$('dataset').value = id; loadDataset(id);}});
+$('normalize').addEventListener('change', () => {if (state.data) renderResults();});
+$('reset').addEventListener('click', () => {$('normalize').checked = false; const id = state.catalog.find(d => d.id === 'px-x-1502040100_105')?.id || state.catalog[0]?.id; if (id) {$('dataset').value = id; loadDataset(id);}});
 let resizeTimer;
 window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
-  if (state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.data);
+  if (state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.plotData || state.data);
 }, 100);});
 async function init() {
   try {

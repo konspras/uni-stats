@@ -43,6 +43,23 @@ try {
   assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['EPFL', '930'], ['ETHZ', '1428']]);
   assert.equal(await evaluate(`document.querySelectorAll('#chart .series-line').length`), 2);
   assert.equal(await evaluate(`document.querySelectorAll('#values-table tbody tr').length`), 46);
+  assert.equal(await evaluate(`document.body.textContent.includes('Explore the source. Understand the differences.')`), false);
+  assert.equal(await evaluate(`document.body.textContent.includes('Choose a dataset, select its categories')`), false);
+  await evaluate(`document.getElementById('normalize').click()`);
+  assert.equal(await evaluate(`document.getElementById('normalization-note').hidden`), false);
+  assert.equal(await evaluate(`state.plotData.series.every(s => s.points.every(p => p.value === null))`), true);
+  await select('from', '27'); await wait(ready);
+  assert.deepEqual(await evaluate(`state.plotData.series.map(s => s.points[0].value)`), [100, 100]);
+  assert.equal(await evaluate(`document.getElementById('normalization-note').hidden`), true);
+  assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Index (2007/08 = 100)');
+  assert.equal(await evaluate(`document.querySelector('#values-table tbody tr:last-child td:nth-child(2)').textContent`), '100');
+  assert.equal(await evaluate(`state.plotData.series[0].points.at(-1).value === state.data.series[0].points.at(-1).value / state.data.series[0].points[0].value * 100`), true);
+  await select('from', '28'); await wait(ready);
+  assert.deepEqual(await evaluate(`state.plotData.series.map(s => s.points[0].value)`), [100, 100]);
+  await evaluate(`document.getElementById('normalize').click()`);
+  assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Source value');
+  assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).raw_value)`), ['930', '1428']);
+  await evaluate(`document.getElementById('reset').click()`); await wait(ready);
   const desktop = await send('Page.captureScreenshot', {format: 'png'});
   await writeFile('/tmp/uni-stats-desktop.png', Buffer.from(desktop.data, 'base64'));
   await select('from', '41'); await wait(ready);
@@ -63,13 +80,17 @@ try {
     assert.equal(await evaluate(`state.data.series.length`), 2, dataset);
   }
   await evaluate(`document.getElementById('reset').click()`); await wait(ready);
+  await select('from', '27'); await wait(ready);
+  await evaluate(`document.getElementById('normalize').click()`);
   await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
   await wait(`document.documentElement.scrollWidth <= 390`);
   await wait(`document.querySelector('#chart svg').getAttribute('viewBox').startsWith('0 0 520 ')`);
+  assert.deepEqual(await evaluate(`state.plotData.series.map(s => s.points[0].value)`), [100, 100]);
+  assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Index (2007/08 = 100)');
   const metrics = await send('Page.getLayoutMetrics');
   const mobile = await send('Page.captureScreenshot', {format: 'png', captureBeyondViewport: true,
     clip: {x: 0, y: 0, width: 390, height: metrics.cssContentSize.height, scale: 1}});
   await writeFile('/tmp/uni-stats-mobile.png', Buffer.from(mobile.data, 'base64'));
   assert.deepEqual(errors, [], 'Browser console errors');
-  console.log('PASS: default values, range, comparison/filter changes, category search, all 28 datasets, mobile layout, no browser errors.');
+  console.log('PASS: default values, normalized baselines/interval changes/source restoration, zero baseline notice, range, comparison/filter changes, category search, all 28 datasets, mobile layout, no browser errors.');
 } finally {socket.close();}

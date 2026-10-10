@@ -7,20 +7,21 @@
   <title>UniStats · Data explorer</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/normalize.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
   <header class="header">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">u.</span><div><strong>UniStats</strong><span>Swiss universities, over time</span></div></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">u.</span><div><strong>UniStats</strong></div></div>
     <div class="source-badge"><span class="status-dot"></span>BFS / Swiss Federal Statistical Office</div>
   </header>
-  <nav class="tabs" aria-label="Main navigation"><span class="active-tab" aria-current="page">Data explorer</span><span class="tab-note">Explore the source. Understand the differences.</span></nav>
+  <nav class="tabs" aria-label="Main navigation"><span class="active-tab" aria-current="page">Data explorer</span></nav>
   <main>
-    <section class="intro"><div><p class="eyebrow">DATA EXPLORER</p><h1>A closer look at Swiss universities.</h1><p>Choose a dataset, select its categories, and follow the numbers over time.</p></div><button id="reset" class="secondary-button" type="button">Reset view <span aria-hidden="true">↺</span></button></section>
+    <section class="intro"><h1>Data explorer</h1><button id="reset" class="secondary-button" type="button">Reset view <span aria-hidden="true">↺</span></button></section>
     <div id="error" class="error" role="alert" hidden></div>
     <div class="explorer-layout">
       <aside class="panel controls" aria-label="Data selections">
-        <div class="panel-heading"><h2>Your selection</h2><span id="dataset-count" class="pill">— datasets</span></div>
+        <div class="panel-heading"><h2>Selection</h2><span id="dataset-count" class="pill">— datasets</span></div>
         <label class="field">Dataset<select id="dataset" disabled><option>Loading datasets…</option></select></label>
         <p id="dataset-description" class="helper"></p>
         <label class="field">Measure<select id="measure"></select></label>
@@ -32,17 +33,19 @@
         <div id="filters"></div>
         <div class="section-divider"></div>
         <div class="period-fields"><label class="field">From<select id="from"></select></label><label class="field">To<select id="to"></select></label></div>
+        <label class="normalize-toggle"><input id="normalize" type="checkbox">Normalize to start = 100</label>
         <label class="field">Snapshot<select id="snapshot"></select></label>
       </aside>
       <div class="results">
         <section class="panel plot-panel" aria-labelledby="plot-title">
-          <div class="plot-heading"><div><p id="plot-group" class="eyebrow">TIME SERIES</p><h2 id="plot-title">Loading your data…</h2><p id="plot-context" class="plot-context"></p></div><span id="period-badge" class="pill"></span></div>
+          <div class="plot-heading"><div><p id="plot-group" class="eyebrow">TIME SERIES</p><h2 id="plot-title">Loading data…</h2><p id="plot-context" class="plot-context"></p></div><span id="period-badge" class="pill"></span></div>
           <div id="legend" class="legend" aria-label="Plotted categories"></div>
+          <p id="normalization-note" class="notice" role="status" hidden></p>
           <div id="chart" class="chart" aria-busy="true"></div>
-          <div class="plot-footnote"><span>Each line is one exact category combination. Categories are never summed.</span><span>Missing values are gaps; source zeros remain zero.</span></div>
+          <div class="plot-footnote"><span>Each line is one exact category combination. Categories are never summed.</span><span id="value-note">Missing values are gaps; source zeros remain zero.</span></div>
         </section>
         <section class="panel table-panel" aria-labelledby="table-title">
-          <div class="panel-heading"><div><h2 id="table-title">Behind the lines</h2><p class="helper">The values exactly as published.</p></div><span id="table-count" class="pill"></span></div>
+          <div class="panel-heading"><div><h2 id="table-title">Values</h2><p id="table-description" class="helper">The values exactly as published.</p></div><span id="table-count" class="pill"></span></div>
           <div class="table-scroll"><table id="values-table"><thead></thead><tbody></tbody></table></div>
         </section>
         <section class="panel source-panel" aria-labelledby="source-title">
@@ -54,6 +57,6 @@
       </div>
     </div>
   </main>
-  <footer>Published by BFS. Explored with UniStats.<span>Source categories and labels are retained in their original language.</span></footer>
+  <footer>BFS / OFS / FSO<span>Source categories and labels are retained in their original language.</span></footer>
 </body>
 </html>

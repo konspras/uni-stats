@@ -108,7 +108,7 @@ class ExplorerTests(unittest.TestCase):
         base = 'http://127.0.0.1:' + str(server.server_port)
         try:
             with urlopen(base + '/') as response:
-                self.assertIn(b'Your selection', response.read())
+                self.assertIn(b'Data explorer', response.read())
                 self.assertIn("default-src 'self'", response.headers['Content-Security-Policy'])
             with urlopen(base + '/api/series?query=' + quote(json.dumps(self.query))) as response:
                 self.assertEqual(len(json.load(response)['series']), 2)
