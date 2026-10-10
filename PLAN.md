@@ -28,44 +28,42 @@ The initial focus is student numbers and new Bachelor entrants, particularly Com
 
 Completion check: the original workbook is byte-for-byte unchanged, superseded code and generated data are absent, and documentation does not advertise removed code as runnable.
 
-## 2. Discuss the minimal schema, then create SQLite — pending
+## 2. Discuss the minimal schema, then create SQLite — implemented
 
-Briefly discuss the exact schema with the user before implementation. SQLite and source-structure preservation are agreed; the physical representation is not yet decided.
+The user approved the source-shaped schema after the file-export volume measurement. The implementation uses shared collection/dataset/snapshot tables and one observation table per BFS dataset and structural version. Full details are in [docs/DATABASE.md](docs/DATABASE.md); executable DDL is in `scripts/schema.sql`.
 
-The user subsequently requested the file-export part of step 3 first, so we can measure real dataset sizes before deciding the schema. Complete that work and report its measurements before starting database implementation.
+- `datasets`: BFS identity and source location.
+- `collection_runs`: check/collection timestamps, requested scope, inventory, trigger reasons, outcome and errors.
+- `dataset_tables`: structural versions and physical source-table names.
+- `snapshots`: immutable published dataset snapshots, original source schema/provenance, row counts and checksums.
+- `snapshot_chunks`: query selections, comments, units/source metadata and response checksums.
+- Source-shaped `bfs_*` observation tables: `snapshot_id`, original dimension columns and original value columns, all source fields stored as TEXT.
+- `latest_snapshots`: latest snapshot per dataset from fully successful collections.
 
-The database must represent:
+New years/categories reuse existing observation tables. Source column/role changes create new physical versions while preserving old tables. No universal university mapping, numeric coercion or derived analytical schema is imposed. Extra frontend-specific indexes are deferred until actual query patterns are known.
 
-- Dataset identity and source location.
-- Immutable snapshots with UTC fetch timestamps and the source metadata/category definitions valid at fetch time.
-- Original dimension combinations and values, without assuming identical columns across datasets.
-- Collection-run status, failures, and last successful collection time.
+Completion check: source codes/labels/values/missing markers round-trip; old snapshots are unchanged; structural changes retain their old table versions.
 
-A small dataset/snapshot/run model with source-shaped data is the starting point for discussion. Rows, JSON payloads, or a combination remain options. Do not introduce a universal university mapping layer or a broad normalized analytical schema without discussing the need.
+## 3. Build the complete-snapshot fetcher — SQLite integration implemented
 
-Before the first full import, inventory the selected tables, count their possible cells, and measure an actual sample snapshot. The earlier estimate of hundreds of thousands to a few million observations and tens to hundreds of MB per complete snapshot was a rough estimate, not a measured size or storage commitment.
+The file exporter was implemented first to measure volume. The user then approved the schema and requested replacing the CSV path with database ingestion. `scripts/fetch_bfs.py` now streams validated API chunks directly into `data/university_stats.sqlite3`; CSV output, file-based baselines and the `--output` option are removed.
 
-Completion check: the agreed schema can round-trip source dimensions, labels, values, and missing markers, and retain multiple snapshots containing the same historical periods.
+The fetcher discovers university student/entrant, degree, staff and finance catalogs and excludes tables without a university dimension. The first live inventory contained 28 included and 6 excluded tables. The first file download measured 3,519,548 rows, 51.93 MB CSV and 63.64 MB including metadata and compressed responses; [docs/DATA_VOLUME.md](docs/DATA_VOLUME.md) retains that historical measurement.
 
-## 3. Build the complete-snapshot fetcher — file export implemented; database integration pending
+Each invocation records a metadata check. It compares period labels and table IDs with the latest fully successful database snapshots; skipped, failed, interrupted and metadata-only runs never advance baselines. A new reporting period (including a historical addition) or uncollected table triggers a complete snapshot within the requested scope. Otherwise it skips observation queries. `--check-only` reports the decision without importing observations.
 
-Execution order revised by the user: implement and run the downloader before step 2. `scripts/fetch_bfs.py` now exports complete source tables to timestamped CSV/JSON snapshots without database writes. It discovers the university student/entrant, degree, staff, and finance catalogs, excludes tables without a university dimension, and downloads all categories/periods in the remaining tables. The initial live inventory contains 28 included and 6 excluded tables.
+- Collect all published categories/periods rather than only EPFL/ETH or CS.
+- Discover categories/years from metadata, not hard-coded numeric positions.
+- Split complete selections to respect API query limits and validate every response coordinate.
+- Preserve original values and snapshot-specific metadata, query selections, provenance and units.
+- Import every requested dataset and mark the run complete in one transaction. Any failure rolls back all observations, snapshots and structural changes from that collection.
+- Record failures outside the rolled-back data transaction; keep old baselines and retry outstanding additions on the next check.
+- Use WAL mode for committed-data readers, prevent overlapping collectors with a database-adjacent lock, and recover abandoned run records after process death.
+- Keep the manual CLI and eventual background worker on the same collection/storage path.
 
-File snapshots preserve source metadata and compressed raw responses, report row counts and byte sizes, and publish each complete table only after validation. Failed partial downloads are explicitly marked; earlier snapshots remain unchanged. This provides measured input for the SQLite discussion, not an already-decided database schema.
+Completion check: a live initial collection populates SQLite; an immediate repeat skips fetching; source values/checksums and database integrity validate; failures do not publish partial collections.
 
-The file fetcher now performs the new-data check before any data query. It uses the latest fully successful download baseline for each table; skipped, failed, interrupted, and metadata-only runs never advance that baseline. A new year/table triggers a complete snapshot within the requested scope; no additions means a metadata-only skipped run. `--check-only` reports the decision without downloading. An unknown time schema fails explicitly. The output remains CSV/JSON, with no database writes.
-
-The first full download completed on 2026-10-10: 28 tables, 3,519,548 rows, 51.93 MB CSV, and 63.64 MB for the full run including metadata and compressed responses. At this volume, monthly file snapshots would consume about 0.76 GB per year. See [docs/DATA_VOLUME.md](docs/DATA_VOLUME.md) for exact measurements, scope, and reproducibility. SQLite volume remains dependent on the schema decision.
-
-- Maintain an explicit inventory of relevant BFS university datasets. Collect all published categories and periods for each selected dataset, rather than only EPFL/ETH or Computer Science.
-- Read API metadata before querying; discover current categories and years rather than hard-coding positions or limits. Compare reporting periods/tables against successful snapshots before issuing any data queries.
-- Fetch complete datasets, splitting requests if required by API limits.
-- Save metadata and observations as immutable timestamped snapshots with source provenance.
-- Commit each dataset snapshot atomically only after all parts are successfully fetched and validated. Partial downloads must not become the latest usable snapshot.
-- Record failures, retry temporary errors appropriately, preserve previous successful data, and prevent overlapping collection runs.
-- Provide a manual command using the same collection logic as the scheduled worker.
-
-Completion check: unchanged metadata causes no data queries; a new published year triggers a complete snapshot without fetcher edits; an interrupted/failed fetch leaves the previous successful baseline usable and the next check retries the addition.
+Live import on 2026-10-10 stored all 28 datasets and 3,519,548 rows in an initial 83.20 MB database. Every stored-value checksum and full source metadata dictionary matched the previous file export; SQLite integrity and foreign-key checks passed. The obsolete `data/bfs/` output directory was then removed. An immediate second live run checked all 28 tables and skipped observation downloads, retaining exactly 28 snapshots. The original workbook's checksum is unchanged. All 23 offline tests passed, covering failed-collection rollback, reader visibility, schema versions, process recovery and new-data decisions.
 
 ## 4. Design and build the frontend together — pending
 
@@ -123,4 +121,4 @@ References:
 
 ## Next action
 
-The file downloader, first full-download volume measurement, and new-data gating are implemented. Discuss the minimal SQLite snapshot schema with the user next. No database injection, frontend, or scheduled service is part of the current file-downloader task.
+SQLite storage, direct database collection and live import/skip verification are complete. Design the frontend together with the user next. The weekly service remains pending.

@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
-"""Download complete BFS university tables as timestamped file snapshots.
-
-Download only when metadata contains a new reporting period or university table.
-Standard library only. No database, category mapping, or value revision detection.
-"""
+"""Collect complete BFS university snapshots in SQLite when new periods/tables appear."""
 
 from __future__ import annotations
 
 import argparse
-import csv
 from datetime import datetime, timezone
 import fcntl
-import gzip
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -21,7 +14,9 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-from uuid import uuid4
+import sqlite3
+
+from bfs_store import Store
 
 
 API = "https://www.pxweb.bfs.admin.ch/api/v1/de/"
@@ -37,10 +32,6 @@ EXTRA_DATABASES = {"px-x-1506030000_201", "px-x-1506030000_202"}
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
-
-
-def save_json(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 class Client:
@@ -139,72 +130,21 @@ def validate_response(response, query, previous_columns=None):
     return columns
 
 
-def download_table(client, table, directory, max_cells):
-    metadata = table["metadata"]
-    partial = directory / (table["table_id"] + ".partial")
-    partial.mkdir()
-    save_json(partial / "metadata.json", metadata)
-    save_json(partial / "source.json", {k: v for k, v in table.items() if k != "metadata"})
-    raw_dir = partial / "responses"
-    raw_dir.mkdir()
-    started_at, rows, cells, raw_bytes, chunks, columns = utc_now(), 0, 0, 0, 0, None
-    comments = []
-    with (partial / "data.csv").open("w", newline="", encoding="utf-8") as output:
-        writer = csv.writer(output, lineterminator="\n")
-        for chunks, query in enumerate(selections(metadata, max_cells), start=1):
-            payload = {"query": query, "response": {"format": "json"}}
-            response = client.request(table["api_url"], payload)
-            new_columns = validate_response(response, query, columns)
-            if columns is None:
-                columns = new_columns
-                writer.writerow(c["code"] for c in columns)
-            save_json(raw_dir / f"{chunks:04d}.query.json", payload)
-            raw = json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            raw_bytes += len(raw)
-            with gzip.open(raw_dir / f"{chunks:04d}.json.gz", "wb") as compressed:
-                compressed.write(raw)
-            for row in response["data"]:
-                writer.writerow(row["key"] + row["values"])
-                rows += 1
-                cells += len(row["values"])
-            comments.append({"chunk": chunks, "comments": response.get("comments", []),
-                             "metadata": response.get("metadata", [])})
-    expected = math.prod(len(v["values"]) for v in metadata["variables"])
-    if rows != expected:
-        raise ValueError(f"incomplete dataset: {rows} rows, expected {expected}")
-    save_json(partial / "response_metadata.json", {"columns": columns, "chunks": comments})
-    csv_path = partial / "data.csv"
-    result = {"table_id": table["table_id"], "title": metadata["title"],
-              "status": "complete", "started_at": started_at, "completed_at": utc_now(),
-              "rows": rows, "cells": cells, "chunks": chunks,
-              "csv_bytes": csv_path.stat().st_size, "response_json_bytes": raw_bytes,
-              "csv_sha256": hashlib.sha256(csv_path.read_bytes()).hexdigest(),
-              "source_catalog_updated": table["catalog"].get("updated"),
-              "dimensions": [{"code": v["code"], "categories": len(v["values"])}
-                             for v in metadata["variables"]]}
-    save_json(partial / "snapshot.json", result)
-    result["disk_bytes"] = sum(p.stat().st_size for p in partial.rglob("*") if p.is_file())
-    partial.rename(directory / table["table_id"])
-    return result
-
-
-def successful_baselines(output):
-    """Latest table metadata from fully successful download runs only."""
-    baselines = {}
-    for directory in sorted(output.iterdir(), reverse=True):
-        manifest_path = directory / "manifest.json"
-        if not directory.is_dir() or not manifest_path.exists():
-            continue
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("mode") != "download" or manifest.get("status") != "complete":
-            continue
-        datasets = manifest.get("datasets", [])
-        if not datasets or any(t.get("status") != "complete" for t in datasets):
-            continue
-        for table in json.loads((directory / "inventory.json").read_text(encoding="utf-8")):
-            if table["table_id"] not in baselines:
-                baselines[table["table_id"]] = {"metadata": table["metadata"], "snapshot": directory.name}
-    return baselines
+def download_table(client, table, store, run_id, max_cells):
+    """Stream validated API chunks into the current collection transaction."""
+    columns, snapshot_id, table_name, chunks = None, None, None, 0
+    started_at = utc_now()
+    for chunks, query in enumerate(selections(table["metadata"], max_cells), start=1):
+        payload = {"query": query, "response": {"format": "json"}}
+        response = client.request(table["api_url"], payload)
+        new_columns = validate_response(response, query, columns)
+        if columns is None:
+            columns = new_columns
+            snapshot_id, table_name = store.create_snapshot(table, columns, run_id, started_at)
+        store.insert_chunk(snapshot_id, table_name, columns, chunks, payload, response)
+    expected = math.prod(len(v["values"]) for v in table["metadata"]["variables"])
+    result = store.finish_snapshot(snapshot_id, table_name, columns, expected, utc_now(), chunks)
+    return {"table_id": table["table_id"], "status": "complete", **result}
 
 
 def reporting_periods(metadata):
@@ -239,104 +179,98 @@ def new_data_reasons(inventory, baselines):
     return reasons
 
 
-def collect(client, run_dir, selected, max_cells, inventory_only, check_only=False):
-    manifest = {"started_at": utc_now(), "api": API, "mode": "inventory" if inventory_only else "download",
-                "status": "running", "datasets": [], "excluded": []}
-    if check_only:
-        manifest["mode"] = "check"
+def collect(client, store, selected=(), max_cells=100_000, inventory_only=False, check_only=False):
+    mode = "inventory" if inventory_only else "check" if check_only else "download"
+    run_id = store.start_run(utc_now(), mode, API, selected)
+    result = {"run_id": run_id, "status": "running", "datasets": [], "new_data": [],
+              "totals": {"rows": 0, "cells": 0}}
     try:
-        tables = discover(client, selected)
-        inventory = []
-        for table in tables:
+        inventory, excluded = [], []
+        for table in discover(client, selected):
             metadata = client.request(table["api_url"])
-            variables = metadata["variables"]
-            if not any(v["code"] == "Hochschule" for v in variables):
-                manifest["excluded"].append({"table_id": table["table_id"],
-                                             "reason": "no university dimension"})
+            if not any(v["code"] == "Hochschule" for v in metadata["variables"]):
+                excluded.append({"table_id": table["table_id"], "reason": "no university dimension"})
                 continue
             table["metadata"] = metadata
             inventory.append(table)
-        save_json(run_dir / "inventory.json", inventory)
-        manifest["expected_datasets"] = len(inventory)
-        print(f"Found {len(inventory)} university tables; excluded {len(manifest['excluded'])} national-only tables.", flush=True)
         if not inventory:
             raise ValueError("no university tables found; refusing to treat an empty catalog as success")
-        if not inventory_only:
-            baselines = successful_baselines(run_dir.parent)
-            manifest["baseline_snapshots"] = {t["table_id"]: baselines[t["table_id"]]["snapshot"]
-                                              for t in inventory if t["table_id"] in baselines}
-            manifest["new_data"] = new_data_reasons(inventory, baselines)
-            if not manifest["new_data"]:
-                manifest["status"] = "skipped"
-                print("No new reporting periods or tables. Skipping data download (metadata only).", flush=True)
-                return manifest
-            print(f"New data detected: {len(manifest['new_data'])} table/period additions.", flush=True)
-            if check_only:
-                manifest["status"] = "complete"
-                print("Check only: a full snapshot would be downloaded.", flush=True)
-                return manifest
-        for table in inventory:
-            expected = math.prod(len(v["values"]) for v in table["metadata"]["variables"])
-            if inventory_only:
-                result = {"table_id": table["table_id"], "title": table["metadata"]["title"],
-                          "status": "inventoried", "expected_rows": expected}
-            else:
-                try:
-                    print(f"Downloading {table['table_id']}: {expected:,} rows", flush=True)
-                    result = download_table(client, table, run_dir, max_cells)
-                    print(f"  {result['rows']:,} rows, {result['csv_bytes'] / 1_000_000:.2f} MB CSV", flush=True)
-                except (OSError, ValueError, KeyError, RuntimeError) as error:
-                    result = {"table_id": table["table_id"], "status": "failed", "error": str(error)}
-                    print(f"  FAILED: {error}", file=sys.stderr, flush=True)
-            manifest["datasets"].append(result)
-            save_json(run_dir / "manifest.json", manifest)
-        manifest["status"] = "failed" if any(r["status"] == "failed" for r in manifest["datasets"]) else "complete"
-    except KeyboardInterrupt:
-        manifest["status"], manifest["error"] = "interrupted", "Collection interrupted by the user"
-        raise
-    except (OSError, ValueError, KeyError, RuntimeError) as error:
-        manifest["status"], manifest["error"] = "failed", str(error)
-        print(f"Collection failed: {error}", file=sys.stderr)
-    finally:
-        manifest["finished_at"] = utc_now()
-        complete = [r for r in manifest["datasets"] if r["status"] == "complete"]
-        manifest["totals"] = {key: sum(r.get(key, 0) for r in complete)
-                              for key in ("rows", "cells", "csv_bytes", "response_json_bytes", "disk_bytes")}
-        save_json(run_dir / "manifest.json", manifest)
-    return manifest
+        baselines = store.baselines()
+        reasons = [] if inventory_only else new_data_reasons(inventory, baselines)
+        baseline_ids = {t["table_id"]: baselines[t["table_id"]]["snapshot"]
+                        for t in inventory if t["table_id"] in baselines}
+        store.record_check(run_id, inventory, excluded, baseline_ids, reasons)
+        result["new_data"] = reasons
+        print(f"Run {run_id}: found {len(inventory)} university tables; excluded {len(excluded)} national-only tables.", flush=True)
+        if inventory_only:
+            result["status"] = "complete"
+            print("Inventory only: no observations downloaded.", flush=True)
+        elif not reasons:
+            result["status"] = "skipped"
+            print("No new reporting periods or tables. Skipping data download (metadata only).", flush=True)
+        elif check_only:
+            result["status"] = "complete"
+            print(f"New data detected ({len(reasons)} additions). Check only: a full snapshot would be downloaded.", flush=True)
+        else:
+            print(f"New data detected: {len(reasons)} table/period additions.", flush=True)
+            # All datasets, schema changes, and the complete status publish together.
+            # Until commit, readers see only the previous complete collection.
+            store.begin()
+            for table in inventory:
+                expected = math.prod(len(v["values"]) for v in table["metadata"]["variables"])
+                print(f"Downloading {table['table_id']}: {expected:,} rows", flush=True)
+                snapshot = download_table(client, table, store, run_id, max_cells)
+                result["datasets"].append(snapshot)
+                print(f"  {snapshot['rows']:,} rows stored in SQLite", flush=True)
+            result["status"] = "complete"
+        store.finish_run(run_id, result["status"], utc_now())
+        if store.connection.in_transaction:
+            store.commit()
+        result["totals"] = {key: sum(s[key] for s in result["datasets"]) for key in ("rows", "cells")}
+    except BaseException as error:
+        store.rollback()
+        result["status"] = "interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed"
+        result["error"] = str(error) or type(error).__name__
+        # No snapshots from a failed collection are retained or become baselines.
+        result["datasets"] = []
+        store.finish_run(run_id, result["status"], utc_now(), result["error"])
+        if not isinstance(error, (OSError, ValueError, KeyError, RuntimeError, sqlite3.Error)):
+            raise
+        print(f"Collection failed: {error}", file=sys.stderr, flush=True)
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parents[1] / "data/bfs")
+    parser.add_argument("--database", type=Path,
+                        default=Path(__file__).resolve().parents[1] / "data/university_stats.sqlite3")
     parser.add_argument("--table", action="append", default=[], help="Limit to a table ID (repeatable).")
-    parser.add_argument("--inventory-only", action="store_true", help="Fetch metadata and count rows, without data queries.")
-    parser.add_argument("--check-only", action="store_true", help="Check for new years/tables without downloading data.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--inventory-only", action="store_true", help="Record source metadata only.")
+    group.add_argument("--check-only", action="store_true", help="Check additions without fetching observations.")
     parser.add_argument("--max-cells", type=int, default=100_000, help="Maximum source cells per API query.")
     parser.add_argument("--request-interval", type=float, default=0.4, help="Minimum seconds between requests.")
     args = parser.parse_args()
-    if args.inventory_only and args.check_only:
-        parser.error("inventory-only and check-only are mutually exclusive")
     if args.max_cells < 1 or args.request_interval < 0:
         parser.error("max-cells must be positive and request-interval must be nonnegative")
-    args.output.mkdir(parents=True, exist_ok=True)
-    with (args.output / ".fetch.lock").open("a") as lock:
+    database = args.database.resolve()
+    database.parent.mkdir(parents=True, exist_ok=True)
+    with database.with_name(database.name + ".fetch.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print("Another downloader is using this output directory.", file=sys.stderr)
+            print("Another collector is using this database.", file=sys.stderr)
             return 1
-        name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ") + "-" + uuid4().hex[:8]
-        run_dir = args.output / name
-        run_dir.mkdir()
-        print(f"Snapshot directory: {run_dir}", flush=True)
-        manifest = collect(Client(interval=args.request_interval), run_dir, args.table,
-                           args.max_cells, args.inventory_only, args.check_only)
-        totals = manifest["totals"]
-        print(f"{manifest['status']}: {totals['rows']:,} rows, "
-              f"{totals['csv_bytes'] / 1_000_000:.2f} MB CSV, "
-              f"{totals['disk_bytes'] / 1_000_000:.2f} MB dataset files", flush=True)
-        return 0 if manifest["status"] in ("complete", "skipped") else 1
+        store = Store(database)
+        try:
+            store.recover_runs(utc_now())
+            print(f"Database: {database}", flush=True)
+            result = collect(Client(interval=args.request_interval), store, args.table,
+                             args.max_cells, args.inventory_only, args.check_only)
+            print(f"{result['status']}: {result['totals']['rows']:,} rows stored", flush=True)
+            return 0 if result["status"] in ("complete", "skipped") else 1
+        finally:
+            store.close()
 
 
 if __name__ == "__main__":
