@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Download complete BFS university tables as timestamped file snapshots.
 
-Standard library only. No database, category mapping, or revision detection.
+Download only when metadata contains a new reporting period or university table.
+Standard library only. No database, category mapping, or value revision detection.
 """
 
 from __future__ import annotations
@@ -187,9 +188,62 @@ def download_table(client, table, directory, max_cells):
     return result
 
 
-def collect(client, run_dir, selected, max_cells, inventory_only):
+def successful_baselines(output):
+    """Latest table metadata from fully successful download runs only."""
+    baselines = {}
+    for directory in sorted(output.iterdir(), reverse=True):
+        manifest_path = directory / "manifest.json"
+        if not directory.is_dir() or not manifest_path.exists():
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("mode") != "download" or manifest.get("status") != "complete":
+            continue
+        datasets = manifest.get("datasets", [])
+        if not datasets or any(t.get("status") != "complete" for t in datasets):
+            continue
+        for table in json.loads((directory / "inventory.json").read_text(encoding="utf-8")):
+            if table["table_id"] not in baselines:
+                baselines[table["table_id"]] = {"metadata": table["metadata"], "snapshot": directory.name}
+    return baselines
+
+
+def reporting_periods(metadata):
+    periods = {}
+    for variable in metadata["variables"]:
+        if variable.get("time"):
+            if len(variable["values"]) != len(variable["valueTexts"]):
+                raise ValueError("time category codes and labels differ in length")
+            # Numeric codes can be renumbered. Compare published period labels.
+            periods[variable["code"]] = set(variable["valueTexts"])
+    if not periods:
+        raise ValueError("no time dimension; cannot check for new reporting periods")
+    return periods
+
+
+def new_data_reasons(inventory, baselines):
+    reasons = []
+    for table in inventory:
+        table_id = table["table_id"]
+        current = reporting_periods(table["metadata"])
+        if table_id not in baselines:
+            reasons.append({"table_id": table_id, "reason": "new_table_or_initial_download"})
+            continue
+        previous = reporting_periods(baselines[table_id]["metadata"])
+        if current.keys() != previous.keys():
+            raise ValueError(f"{table_id}: time dimensions changed; inspect metadata before collecting")
+        for code, labels in current.items():
+            added = sorted(labels - previous[code])
+            if added:
+                reasons.append({"table_id": table_id, "reason": "new_reporting_periods",
+                                "dimension": code, "periods": added})
+    return reasons
+
+
+def collect(client, run_dir, selected, max_cells, inventory_only, check_only=False):
     manifest = {"started_at": utc_now(), "api": API, "mode": "inventory" if inventory_only else "download",
                 "status": "running", "datasets": [], "excluded": []}
+    if check_only:
+        manifest["mode"] = "check"
     try:
         tables = discover(client, selected)
         inventory = []
@@ -205,6 +259,22 @@ def collect(client, run_dir, selected, max_cells, inventory_only):
         save_json(run_dir / "inventory.json", inventory)
         manifest["expected_datasets"] = len(inventory)
         print(f"Found {len(inventory)} university tables; excluded {len(manifest['excluded'])} national-only tables.", flush=True)
+        if not inventory:
+            raise ValueError("no university tables found; refusing to treat an empty catalog as success")
+        if not inventory_only:
+            baselines = successful_baselines(run_dir.parent)
+            manifest["baseline_snapshots"] = {t["table_id"]: baselines[t["table_id"]]["snapshot"]
+                                              for t in inventory if t["table_id"] in baselines}
+            manifest["new_data"] = new_data_reasons(inventory, baselines)
+            if not manifest["new_data"]:
+                manifest["status"] = "skipped"
+                print("No new reporting periods or tables. Skipping data download (metadata only).", flush=True)
+                return manifest
+            print(f"New data detected: {len(manifest['new_data'])} table/period additions.", flush=True)
+            if check_only:
+                manifest["status"] = "complete"
+                print("Check only: a full snapshot would be downloaded.", flush=True)
+                return manifest
         for table in inventory:
             expected = math.prod(len(v["values"]) for v in table["metadata"]["variables"])
             if inventory_only:
@@ -241,9 +311,12 @@ def main():
     parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parents[1] / "data/bfs")
     parser.add_argument("--table", action="append", default=[], help="Limit to a table ID (repeatable).")
     parser.add_argument("--inventory-only", action="store_true", help="Fetch metadata and count rows, without data queries.")
+    parser.add_argument("--check-only", action="store_true", help="Check for new years/tables without downloading data.")
     parser.add_argument("--max-cells", type=int, default=100_000, help="Maximum source cells per API query.")
     parser.add_argument("--request-interval", type=float, default=0.4, help="Minimum seconds between requests.")
     args = parser.parse_args()
+    if args.inventory_only and args.check_only:
+        parser.error("inventory-only and check-only are mutually exclusive")
     if args.max_cells < 1 or args.request_interval < 0:
         parser.error("max-cells must be positive and request-interval must be nonnegative")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -258,12 +331,12 @@ def main():
         run_dir.mkdir()
         print(f"Snapshot directory: {run_dir}", flush=True)
         manifest = collect(Client(interval=args.request_interval), run_dir, args.table,
-                           args.max_cells, args.inventory_only)
+                           args.max_cells, args.inventory_only, args.check_only)
         totals = manifest["totals"]
         print(f"{manifest['status']}: {totals['rows']:,} rows, "
               f"{totals['csv_bytes'] / 1_000_000:.2f} MB CSV, "
               f"{totals['disk_bytes'] / 1_000_000:.2f} MB dataset files", flush=True)
-        return 0 if manifest["status"] == "complete" else 1
+        return 0 if manifest["status"] in ("complete", "skipped") else 1
 
 
 if __name__ == "__main__":

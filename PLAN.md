@@ -13,11 +13,12 @@ The initial focus is student numbers and new Bachelor entrants, particularly Com
 - Use SQLite, with no separate database server initially.
 - Use the public BFS PxWeb API.
 - Preserve each dataset's original dimensions, category codes and labels, units, source metadata, values, and missing-value markers. A missing value must remain distinct from zero.
-- Fetch the complete published contents of every selected dataset on each collection run. Retain each successful fetch as a new timestamped snapshot, even if unchanged.
+- Check metadata weekly. Fetch the complete published contents of every selected dataset only when a new reporting period or previously uncollected university table is available. Retain each successful fetch as a new timestamped snapshot.
 - Do not implement revision detection or missing-year-only incremental fetching. Complete snapshots supersede the earlier incremental-update proposal and preserve pre-revision data naturally.
 - Make interpretation, mappings, derived metrics, and comparison assumptions explicit in the frontend when needed. Do not impose a shared classification in storage.
 - Design the frontend together with the user.
-- Run the website continuously as an OS-started service, with monthly collection checks performed by a background worker in that service, following ../day-to-day.
+- Run the website continuously as an OS-started service, with weekly metadata checks performed by a background worker in that service, following ../day-to-day.
+- Ignore revisions to existing values, changed update timestamps, and non-time category additions when deciding whether to download. A newly triggered complete snapshot includes intervening revisions. Historical reporting-period additions count as new data; compare period labels rather than unstable numeric category positions.
 
 ## 1. Clean up the repository — complete
 
@@ -52,17 +53,19 @@ Execution order revised by the user: implement and run the downloader before ste
 
 File snapshots preserve source metadata and compressed raw responses, report row counts and byte sizes, and publish each complete table only after validation. Failed partial downloads are explicitly marked; earlier snapshots remain unchanged. This provides measured input for the SQLite discussion, not an already-decided database schema.
 
+The file fetcher now performs the new-data check before any data query. It uses the latest fully successful download baseline for each table; skipped, failed, interrupted, and metadata-only runs never advance that baseline. A new year/table triggers a complete snapshot within the requested scope; no additions means a metadata-only skipped run. `--check-only` reports the decision without downloading. An unknown time schema fails explicitly. The output remains CSV/JSON, with no database writes.
+
 The first full download completed on 2026-10-10: 28 tables, 3,519,548 rows, 51.93 MB CSV, and 63.64 MB for the full run including metadata and compressed responses. At this volume, monthly file snapshots would consume about 0.76 GB per year. See [docs/DATA_VOLUME.md](docs/DATA_VOLUME.md) for exact measurements, scope, and reproducibility. SQLite volume remains dependent on the schema decision.
 
 - Maintain an explicit inventory of relevant BFS university datasets. Collect all published categories and periods for each selected dataset, rather than only EPFL/ETH or Computer Science.
-- Read API metadata before querying; discover current categories and years rather than hard-coding positions or limits.
+- Read API metadata before querying; discover current categories and years rather than hard-coding positions or limits. Compare reporting periods/tables against successful snapshots before issuing any data queries.
 - Fetch complete datasets, splitting requests if required by API limits.
 - Save metadata and observations as immutable timestamped snapshots with source provenance.
 - Commit each dataset snapshot atomically only after all parts are successfully fetched and validated. Partial downloads must not become the latest usable snapshot.
 - Record failures, retry temporary errors appropriately, preserve previous successful data, and prevent overlapping collection runs.
 - Provide a manual command using the same collection logic as the scheduled worker.
 
-Completion check: two runs retain two snapshots; an interrupted fetch leaves the previous successful snapshot usable; a new published year requires no fetcher edits.
+Completion check: unchanged metadata causes no data queries; a new published year triggers a complete snapshot without fetcher edits; an interrupted/failed fetch leaves the previous successful baseline usable and the next check retries the addition.
 
 ## 4. Design and build the frontend together — pending
 
@@ -74,11 +77,11 @@ Completion check: two runs retain two snapshots; an interrupted fetch leaves the
 
 Completion check: the agreed interface explores CS student counts and Bachelor entrants at EPFL and ETH from SQLite, compares universities, and switches between retained snapshots.
 
-## 5. Run the website and monthly collection service — pending
+## 5. Run the website and weekly metadata-check service — pending
 
 - Follow ../day-to-day's systemd deployment and background-worker pattern: start with the OS, restart after failures, and serve continuously.
-- Run monthly full-snapshot collection in the website service's background worker. Configure the exact monthly timing during deployment.
-- Persist scheduling state in SQLite. After downtime, perform one overdue collection without fabricating snapshots for missed months.
+- Run weekly metadata checks in the website service's background worker. Download a full snapshot only when the fetcher detects new reporting periods or tables. Configure the exact weekly timing during deployment.
+- Persist scheduling state in SQLite. After downtime, perform one overdue check without fabricating snapshots for missed weeks.
 - Keep the website responsive and the last successful data available during collection or failures.
 - Reuse the manual fetcher's logic, enforce a single active collection, and expose collection status and logs.
 
@@ -120,4 +123,4 @@ References:
 
 ## Next action
 
-The file downloader and first full-download volume measurement are complete. Discuss the minimal SQLite snapshot schema with the user next. No database injection, frontend, or scheduled service is part of the current file-downloader task.
+The file downloader, first full-download volume measurement, and new-data gating are implemented. Discuss the minimal SQLite snapshot schema with the user next. No database injection, frontend, or scheduled service is part of the current file-downloader task.

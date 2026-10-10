@@ -20,7 +20,7 @@ MB means 1,000,000 bytes. Exact totals:
 - Entire run, including the top-level inventory and manifest: 63,639,883 bytes, or 63.64 MB.
 - Parsed source responses serialized as uncompressed JSON: 165,051,277 bytes. These responses are stored compressed; this is not a measurement of HTTP transfer bytes or an additional on-disk copy.
 
-At the current volume, keeping 12 full monthly file snapshots would occupy approximately **764 MB per year (0.76 GB)**. New years, categories, or datasets will increase that amount. SQLite size depends on the eventual storage representation and indexes; these file measurements do not determine its exact size.
+For scale, keeping 12 full file snapshots would occupy approximately **764 MB (0.76 GB)** at the current volume. The agreed service will check metadata weekly and collect only when new reporting periods or university tables appear, so it will not create a snapshot on every check. New years, categories, or datasets will increase snapshot size. SQLite size depends on the eventual storage representation and indexes; these file measurements do not determine its exact size.
 
 ## What was measured
 
@@ -38,11 +38,13 @@ The measured run is stored locally under:
 
 Its `manifest.json` contains the full per-table counts, sizes, statuses, and timestamps. `inventory.json` preserves the API schema/catalog entries used in the run. Downloaded snapshots are ignored by Git; the downloader and this report are tracked project files.
 
-To obtain a fresh full snapshot:
+To check for new data and download a full snapshot only if needed:
 
 ```bash
 python3 scripts/fetch_bfs.py
 ```
+
+The first run in an empty output directory downloads everything. Subsequent runs compare with retained successful snapshots and skip observations if no new reporting periods/tables exist. To repeat the full volume measurement independently, use `--output` with a new empty directory.
 
 To inventory source schemas and expected row counts without downloading observations:
 
