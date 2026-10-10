@@ -10,11 +10,23 @@ Collect historical Swiss university statistics from the Swiss Federal Statistica
 
 ## Current state
 
-The fetcher checks metadata and stores complete snapshots directly in SQLite only when a new reporting period or university table appears. CSV/file-export output has been removed. The frontend and weekly service have not been implemented.
+The fetcher checks metadata and stores complete snapshots directly in SQLite only when a new reporting period or university table appears. CSV/file-export output has been removed. The Data explorer frontend is running as a persistent user service; weekly collection has not been enabled.
 
 The first file-based measurement covered 28 tables and 3,519,548 rows. See [the volume report](docs/DATA_VOLUME.md) for measurements and scope.
 
 The live SQLite import contains those 28 datasets and 3,519,548 rows, occupying about 79.4 MiB immediately after import. All values and source metadata matched the earlier export before that obsolete directory was removed. An immediate second live run checked all 28 tables and skipped fetching without adding snapshots. SQLite integrity, foreign keys, all stored-content checksums and 23 offline tests passed.
+
+## Explore the data
+
+Open [the Data explorer](http://localhost:8768). It provides all collected datasets, source-driven filters, comparison categories, a time-series chart, the underlying values and source definitions. The default view compares CS Bachelor enrolments at EPFL and ETH Zurich. Each line is an exact category combination; there is no implicit aggregation.
+
+The `uni-stats.service` user service is enabled and starts with the OS. It serves existing SQLite snapshots without fetching data. See [frontend/service documentation](docs/FRONTEND.md) for API, operation and tests.
+
+```bash
+systemctl --user status uni-stats.service
+# Alternative manual server:
+python3 server.py --host 127.0.0.1 --port 8769
+```
 
 ## Collect BFS university data
 

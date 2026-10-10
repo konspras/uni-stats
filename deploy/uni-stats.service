@@ -1,0 +1,17 @@
+# User service: enable with systemctl --user.
+[Unit]
+Description=Swiss university data explorer
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/konstantinos/Code/uni-stats
+ExecStart=/usr/bin/python3 /home/konstantinos/Code/uni-stats/server.py --host 0.0.0.0 --port 8768
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

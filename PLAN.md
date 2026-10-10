@@ -65,7 +65,13 @@ Completion check: a live initial collection populates SQLite; an immediate repea
 
 Live import on 2026-10-10 stored all 28 datasets and 3,519,548 rows in an initial 83.20 MB database. Every stored-value checksum and full source metadata dictionary matched the previous file export; SQLite integrity and foreign-key checks passed. The obsolete `data/bfs/` output directory was then removed. An immediate second live run checked all 28 tables and skipped observation downloads, retaining exactly 28 snapshots. The original workbook's checksum is unchanged. All 23 offline tests passed, covering failed-collection rollback, reader visibility, schema versions, process recovery and new-data decisions.
 
-## 4. Design and build the frontend together — pending
+## 4. Design and build the frontend together — first Data explorer implemented
+
+The user approved starting with one generic Data explorer tab rather than specialized dashboards. It is implemented in `server.py`, `explorer.py` and `web/`, with a read-only SQLite API, source-metadata-driven controls, exact-category time series, raw-value table, definitions/provenance and successful snapshot selection. Every collected dataset is accessible through a grouped picker. Known dimension names are translated only for interface labels; original categories and metadata remain visible.
+
+One comparison dimension allows multiple selected categories; every other dimension has exactly one fixed category. No implicit summation is applied, so source totals and subcategories cannot be double-counted. Missing markers produce gaps; published zeros remain zero. The initial view shows Informatik/Bachelor at EPFL and ETHZ using student table `px-x-1502040100_105`, with all years available.
+
+The first version passed Python/HTTP tests and real-browser checks of the default values, filter/comparison changes, all 28 datasets and mobile layout. It is available at `http://localhost:8768`. Continue refining and expanding the interface together as the user learns the data. See [docs/FRONTEND.md](docs/FRONTEND.md).
 
 - Browse source datasets as published, using their original dimensions and labels.
 - Allow dataset/metric, subject, university, study level, and period selection where those dimensions exist.
@@ -75,7 +81,9 @@ Live import on 2026-10-10 stored all 28 datasets and 3,519,548 rows in an initia
 
 Completion check: the agreed interface explores CS student counts and Bachelor entrants at EPFL and ETH from SQLite, compares universities, and switches between retained snapshots.
 
-## 5. Run the website and weekly metadata-check service — pending
+## 5. Run the website and weekly metadata-check service — website running; periodic checks pending
+
+At the user's request, the website is already installed as the OS-started `uni-stats.service` user service on port 8768, which was verified unused before installation. The unit is tracked under `deploy/uni-stats.service`; existing user lingering is enabled. It serves SQLite read-only and restarts on failure. There is no periodic worker, timer, fetch on startup or automatic collection in this first frontend service.
 
 - Follow ../day-to-day's systemd deployment and background-worker pattern: start with the OS, restart after failures, and serve continuously.
 - Run weekly metadata checks in the website service's background worker. Download a full snapshot only when the fetcher detects new reporting periods or tables. Configure the exact weekly timing during deployment.
@@ -121,4 +129,4 @@ References:
 
 ## Next action
 
-SQLite storage, direct database collection and live import/skip verification are complete. Design the frontend together with the user next. The weekly service remains pending.
+SQLite storage, direct database collection and the first Data explorer are implemented and tested. The website service is running on port 8768. Refine the explorer together with the user; weekly metadata checks remain pending and must not be enabled as part of this initial frontend request.
