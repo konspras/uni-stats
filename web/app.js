@@ -8,6 +8,7 @@ const names = {Hochschule: 'University', Fachrichtung: 'Subject (detailed)', Fac
   Finanzquelle: 'Funding source', Finanzierungstyp: 'Funding type', Aufwandsart: 'Expenditure type',
   Leistung: 'Activity', Kostenart: 'Cost type', Erlöskategorie: 'Revenue category', Indikator: 'Indicator'};
 const colors = ['#365bd6', '#db7853', '#278d7a', '#8d5cbe', '#b79b29', '#ca5992', '#3b90b7', '#797564'];
+const ALL = '__derived_all__';
 const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0};
 const date = value => value ? new Date(value).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}) : 'Not supplied';
 const label = code => names[code] || code;
@@ -18,6 +19,10 @@ function error(message) {$('error').textContent = message; $('error').hidden = !
 async function api(path, signal) {const response = await fetch(path, {signal}); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Could not load data'); return result;}
 function variable(code) {return state.detail.metadata.variables.find(v => v.code === code);}
 function categories(v) {return v.values.map((code, i) => ({code, text: v.valueTexts[i]}));}
+function selectionLabel(code, value) {
+  if (value === null) return state.detail.aggregation_options[code].mode === 'sum' ? 'All (derived sum)' : 'All (published total)';
+  const v = variable(code); return v.valueTexts[v.values.indexOf(value)];
+}
 function preferred(v) {
   const preferences = v.code === 'Fachrichtung' ? ['Informatik'] : v.code === 'Fachbereich' ? ['4.1 Exakte Wissenschaften'] :
     v.code === 'Studienstufe' || v.code === 'Examensstufe' ? ['Bachelor'] : v.code === 'Hochschule' ? ['EPFL', 'ETHZ'] : [];
@@ -29,7 +34,7 @@ function titleFor(dataset) {
 }
 function summary() {
   return Object.entries(state.filters).map(([code, value]) => {
-    const v = variable(code); return label(code) + ': ' + v.valueTexts[v.values.indexOf(value)];
+    return label(code) + ': ' + selectionLabel(code, value);
   }).join(' · ');
 }
 function renderCategories() {
@@ -56,9 +61,12 @@ function renderFilters() {
   for (const v of state.detail.metadata.variables.filter(v => !v.time && v.code !== state.compare)) {
     const field = el('label', label(v.code), 'field'); const select = el('select'); select.dataset.dimension = v.code;
     for (const c of categories(v)) option(select, c.code, c.text);
-    select.value = state.filters[v.code];
-    select.addEventListener('change', () => {state.filters[v.code] = select.value; updatePlot();});
+    const aggregation = state.detail.aggregation_options[v.code];
+    if (aggregation) option(select, ALL, aggregation.mode === 'sum' ? 'All (derived sum)' : 'All (published total)');
+    select.value = state.filters[v.code] === null ? ALL : state.filters[v.code];
+    select.addEventListener('change', () => {state.filters[v.code] = select.value === ALL ? null : select.value; updatePlot();});
     field.append(select); root.append(field);
+    if (!aggregation) field.append(el('span', 'All is unavailable for this dimension.', 'helper'));
   }
 }
 function renderSource() {
@@ -70,7 +78,7 @@ function renderSource() {
     const block = el('div'); block.append(el('dt', title), el('dd', value)); root.append(block);
   }
   const definitions = $('definitions'); definitions.replaceChildren();
-  definitions.append(el('p', 'Each plotted line fixes every other dimension to one category. Totals are shown only when explicitly published and selected. No aggregation or cross-table mapping is applied.'));
+  definitions.append(el('p', 'All (derived sum) adds the source categories within this table. All (published total) selects the existing source total. Missing components leave a gap. Ratios and mixed indicators are not summed. No cross-table mapping is applied. Staff headcount sums count category assignments and may count a person more than once; use FTE for additive staffing comparisons.'));
   for (const column of detail.columns) if (column.comment) {
     definitions.append(el('strong', column.text || column.code), el('p', column.comment.replaceAll('\\r\\n', '\n')));
   }
@@ -130,7 +138,7 @@ function renderResults() {
   state.plotData = data;
   $('plot-group').textContent = detail.group.toUpperCase();
   const subject = Object.entries(state.filters).find(([code]) => ['Fachrichtung', 'Fachbereich'].includes(code));
-  $('plot-title').textContent = subject ? variable(subject[0]).valueTexts[variable(subject[0]).values.indexOf(subject[1])] : label(state.compare) + ' comparison';
+  $('plot-title').textContent = subject ? selectionLabel(...subject) : label(state.compare) + ' comparison';
   $('plot-context').textContent = summary();
   $('period-badge').textContent = data.periods[0] + ' — ' + data.periods.at(-1);
   $('legend').replaceChildren(); for (const [i, s] of data.series.entries()) {
@@ -141,7 +149,9 @@ function renderResults() {
   $('normalization-note').textContent = unavailable.length ? 'Cannot normalize ' + unavailable.map(s => s.label).join(', ') +
     ': the value in ' + data.periods[0] + ' is zero or missing. Select another start year.' : '';
   $('value-note').textContent = data.normalized ? data.periods[0] + ' = 100 for each series. Missing values remain gaps.' : 'Missing values are gaps; source zeros remain zero.';
-  $('table-description').textContent = data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its source value.' : 'The values exactly as published.';
+  $('aggregation-note').textContent = data.derived ? 'Derived sum across selected All dimensions. Missing components leave gaps.' : 'Values from the selected source categories.';
+  const valueKind = data.derived ? 'Derived sum' : 'Source value';
+  $('table-description').textContent = data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its ' + valueKind.toLowerCase() + '.' : data.derived ? 'Derived sums of source values.' : 'The values exactly as published.';
   drawChart(data);
   const table = $('values-table'), head = el('tr'); head.append(el('th', 'Period'));
   for (const s of data.series) {const th = el('th', s.label); th.scope = 'col'; head.append(th);} head.firstChild.scope = 'col';
@@ -149,8 +159,8 @@ function renderResults() {
   for (let j = data.periods.length - 1; j >= 0; j--) {
     const row = el('tr'); row.append(el('td', data.periods[j]));
     for (const s of data.series) {const point = s.points[j]; const cell = el('td', data.normalized ? number(point.value) : point.raw_value ?? '—', point.value === null ? 'missing' : '');
-      if (data.normalized) cell.title = 'Source value: ' + (point.raw_value ?? 'not published') + (s.normalization_issue ? '; starting value is zero or missing' : '');
-      else if (point.value === null) cell.title = point.raw_value === null ? 'No published observation' : 'Source missing-value marker'; row.append(cell);}
+      if (data.normalized) cell.title = valueKind + ': ' + (point.raw_value ?? 'unavailable') + (s.normalization_issue ? '; starting value is zero or missing' : '');
+      else if (point.value === null) cell.title = data.derived ? 'Incomplete sum: ' + point.missing_components + ' missing components' : point.raw_value === null ? 'No published observation' : 'Source missing-value marker'; row.append(cell);}
     body.append(row);
   }
   $('table-count').textContent = data.periods.length + ' periods · ' + data.series.length + ' lines';
@@ -172,7 +182,7 @@ function drawChart(data) {
   const y = value => top + (max - value) / (max - min) * plotHeight;
   const svg = svgNode('svg', {viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': data.measure + ': ' + data.series.map(s => s.label).join(', ')});
   svg.append(svgNode('title', {}, data.measure));
-  svg.append(svgNode('text', {x: left, y: 11, class: 'axis-title'}, data.normalized ? 'Index (' + data.periods[0] + ' = 100)' : 'Source value'));
+  svg.append(svgNode('text', {x: left, y: 11, class: 'axis-title'}, data.normalized ? 'Index (' + data.periods[0] + ' = 100)' : data.derived ? 'Derived sum' : 'Source value'));
   for (let value = min; value <= max + niceStep / 100; value += niceStep) {
     svg.append(svgNode('line', {x1: left, x2: width - right, y1: y(value), y2: y(value), class: 'grid-line'}));
     svg.append(svgNode('text', {x: left - 12, y: y(value) + 3, 'text-anchor': 'end'}, number(value)));
@@ -203,7 +213,7 @@ function drawChart(data) {
     for (const [i, s] of data.series.entries()) {
       const point = s.points[inspected], row = el('div', undefined, 'tooltip-row'), name = el('span');
       name.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label)); row.append(name, el('b', point.value === null ? data.normalized ? '—' : point.raw_value ?? '—' : number(point.value)));
-      row.title = 'Source value: ' + (point.raw_value ?? 'not published'); tooltip.append(row);
+      row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); tooltip.append(row);
       if (point.value !== null) hover.append(svgNode('circle', {cx: x(inspected), cy: y(point.value), r: 4, fill: colors[i % colors.length], class: 'point'}));
     }
     tooltip.hidden = false; const ratio = root.clientWidth / width;

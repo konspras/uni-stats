@@ -1,6 +1,7 @@
 """Read-only queries for a source-shaped BFS time-series explorer."""
 
 from contextlib import contextmanager
+from decimal import Decimal, localcontext
 import json
 import math
 from pathlib import Path
@@ -12,6 +13,34 @@ from scripts.bfs_store import identifier
 
 
 DEFAULT_DATASET = 'px-x-1502040100_105'
+
+# Reviewed source tables: counts, FTE and monetary amounts, not ratios.
+ADDITIVE_DATASETS = {
+    'px-x-' + prefix + '_' + suffix
+    for prefix, suffixes in [
+        ('1502040100', ('103', '104', '105', '106', '107', '108', '109', '121', '122', '123', '124')),
+        ('1503040100', ('101', '102', '103', '105')),
+        ('1504040100', ('101', '102', '103', '104', '105', '106', '107', '108')),
+        ('1506030000', ('201', '202')), ('1506030100', ('203', '204')),
+    ] for suffix in suffixes
+}
+
+
+def aggregation_options(dataset_id, variables):
+    """Explicit policy for reviewed tables; source residual categories are not totals."""
+    options = {}
+    for variable in variables:
+        if variable.get('time'):
+            continue
+        code = variable['code']
+        # These source dictionaries publish university total code 0.
+        if (dataset_id in {'px-x-1506030100_' + n for n in ('203', '204', '211')}
+                and code == 'Hochschule' and '0' in variable['values']
+                and variable['valueTexts'][variable['values'].index('0')] == 'Hochschule - Total'):
+            options[code] = {'mode': 'published_total', 'values': ['0']}
+        elif dataset_id in ADDITIVE_DATASETS:
+            options[code] = {'mode': 'sum', 'values': variable['values']}
+    return options
 
 
 def group_for(dataset_id):
@@ -95,6 +124,7 @@ class Explorer:
             return {'id': dataset_id, 'title': metadata['title'], 'group': group_for(dataset_id),
                     'snapshot_id': row['id'], 'fetched_at': row['fetched_at'], 'rows': row['row_count'],
                     'metadata': metadata, 'columns': columns, 'source': source, 'source_url': source_url,
+                    'aggregation_options': aggregation_options(dataset_id, metadata['variables']),
                     'comments': comments, 'source_metadata': source_metadata, 'snapshots': versions}
 
     def series(self, request):
@@ -124,10 +154,19 @@ class Explorer:
                 raise ValueError('Invalid comparison categories')
             filters = request.get('filters')
             if not isinstance(filters, dict) or set(filters) != set(dimensions) - {comparison}:
-                raise ValueError('Select exactly one category for every other dimension')
+                raise ValueError('Select a category or All for every other dimension')
+            options = aggregation_options(dataset_id, variables)
+            selections, aggregation = {}, {}
             for code, value in filters.items():
-                if not isinstance(value, str) or value not in dimensions[code]['values']:
+                if value is None:
+                    if code not in options:
+                        raise ValueError('All is not supported for ' + code)
+                    selections[code] = options[code]['values']
+                    aggregation[code] = {'mode': options[code]['mode'], 'categories': len(selections[code])}
+                elif not isinstance(value, str) or value not in dimensions[code]['values']:
                     raise ValueError('Invalid category for ' + code)
+                else:
+                    selections[code] = [value]
             columns = json.loads(snapshot['columns_json'])
             measures = [c for c in columns if c['type'] == 'c']
             measure = request.get('measure', measures[0]['code'])
@@ -141,9 +180,9 @@ class Explorer:
             selected_labels = labels[codes.index(first):codes.index(last) + 1]
             clauses = ['snapshot_id=?']
             arguments = [snapshot['id']]
-            for code, value in filters.items():
-                clauses.append(identifier(code) + '=?')
-                arguments.append(value)
+            for code, selected in selections.items():
+                clauses.append(identifier(code) + ' IN (' + ','.join('?' for _ in selected) + ')')
+                arguments.extend(selected)
             clauses.append(identifier(comparison) + ' IN (' + ','.join('?' for _ in values) + ')')
             arguments.extend(values)
             clauses.append(identifier(time['code']) + ' IN (' + ','.join('?' for _ in period_codes) + ')')
@@ -151,15 +190,32 @@ class Explorer:
             selection = ','.join(identifier(code) for code in (time['code'], comparison, measure))
             rows = connection.execute(f'SELECT {selection} FROM {identifier(snapshot["table_name"])} WHERE '
                                       + ' AND '.join(clauses), arguments)
-            raw = {(r[0], r[1]): r[2] for r in rows}
+            derived = any(a['mode'] == 'sum' for a in aggregation.values())
+            expected = math.prod(len(v) for v in selections.values())
+            raw = {}
+            for row in rows:
+                raw.setdefault((row[0], row[1]), []).append(row[2])
             comparison_labels = dict(zip(dimensions[comparison]['values'], dimensions[comparison]['valueTexts']))
             series = []
             for value in values:
                 points = []
                 for code, label in zip(period_codes, selected_labels):
-                    source_value = raw.get((code, value))
-                    points.append({'period_code': code, 'period': label, 'raw_value': source_value,
-                                   'value': numeric_value(source_value)})
+                    components = raw.get((code, value), [])
+                    missing = expected - len(components) + sum(numeric_value(v) is None for v in components)
+                    source_value = components[0] if components else None
+                    if derived:
+                        source_value = None
+                        if not missing:
+                            # Keep decimal source precision during addition (e.g. 0.1 + 0.2).
+                            with localcontext() as context:
+                                context.prec = 400
+                                source_value = format(sum((Decimal(v) for v in components), Decimal(0)), 'f')
+                    point = {'period_code': code, 'period': label, 'raw_value': source_value,
+                             'value': numeric_value(source_value)}
+                    if derived:
+                        point['missing_components'] = missing
+                    points.append(point)
                 series.append({'code': value, 'label': comparison_labels[value], 'points': points})
             return {'dataset': dataset_id, 'snapshot_id': snapshot['id'], 'measure': measure,
-                    'compare': comparison, 'filters': filters, 'periods': selected_labels, 'series': series}
+                    'compare': comparison, 'filters': filters, 'periods': selected_labels, 'series': series,
+                    'derived': derived, 'aggregation': aggregation}

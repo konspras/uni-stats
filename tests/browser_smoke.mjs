@@ -78,7 +78,44 @@ try {
     await select('dataset', dataset); await wait(ready + ` && state.data.dataset === ${JSON.stringify(dataset)}`);
     assert.equal(await evaluate(`document.getElementById('error').hidden`), true, dataset);
     assert.equal(await evaluate(`state.data.series.length`), 2, dataset);
+    // Exercise every eligible fixed dimension's All option together.
+    await evaluate(`for (const s of document.querySelectorAll('#filters select')) {
+      if ([...s.options].some(o => o.value === '__derived_all__')) {
+        s.value = '__derived_all__'; s.dispatchEvent(new Event('change'));
+      }
+    }`);
+    await wait(ready);
+    assert.equal(await evaluate(`document.getElementById('error').hidden`), true, dataset + ' All');
+    assert.equal(await evaluate(`state.data.series.length`), 2, dataset + ' All');
   }
+  for (const [dataset, dimension] of [['px-x-1502040100_123', 'Geschlecht'],
+                                    ['px-x-1502040100_124', 'Staatsangehörigkeit (Kategorie)']]) {
+    await select('dataset', dataset); await wait(ready + ` && state.data.dataset === ${JSON.stringify(dataset)}`);
+    await evaluate(`{const s = [...document.querySelectorAll('#filters select')].find(s => s.dataset.dimension === ${JSON.stringify(dimension)});
+      s.value = '__derived_all__'; s.dispatchEvent(new Event('change'));}`);
+    await wait(ready);
+    assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['EPFL', '286'], ['ETHZ', '369']]);
+    assert.equal(await evaluate(`state.data.derived`), true);
+    assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Derived sum');
+    const start = await evaluate(`state.detail.metadata.variables.find(v=>v.time).values.at(-5)`);
+    await select('from', start); await wait(ready);
+    await evaluate(`document.getElementById('normalize').click()`);
+    assert.deepEqual(await evaluate(`state.plotData.series.map(s=>s.points[0].value)`), [100, 100]);
+    assert.equal(await evaluate(`state.plotData.series[0].points.at(-1).value === state.data.series[0].points.at(-1).value / state.data.series[0].points[0].value * 100`), true);
+    await evaluate(`document.getElementById('normalize').click()`);
+    // Changing the comparison dimension from All must select a real category.
+    await select('compare', dimension); await wait(ready);
+    assert.equal(await evaluate(`document.getElementById('error').hidden`), true);
+    assert.equal(await evaluate(`state.values.every(v=>variable(state.compare).values.includes(v))`), true);
+  }
+  await select('dataset', 'px-x-1506030100_211'); await wait(ready + ` && state.data.dataset === 'px-x-1506030100_211'`);
+  assert.equal(await evaluate(`document.querySelectorAll('#filters option[value="__derived_all__"]').length`), 0);
+  await select('compare', 'Indikator'); await wait(ready);
+  await evaluate(`{const s = [...document.querySelectorAll('#filters select')].find(s=>s.dataset.dimension === 'Hochschule');
+    s.value='__derived_all__'; s.dispatchEvent(new Event('change'));}`);
+  await wait(ready);
+  assert.equal(await evaluate(`state.data.aggregation.Hochschule.mode`), 'published_total');
+  assert.equal(await evaluate(`state.data.derived`), false);
   await evaluate(`document.getElementById('reset').click()`); await wait(ready);
   await select('from', '27'); await wait(ready);
   await evaluate(`document.getElementById('normalize').click()`);
@@ -92,5 +129,5 @@ try {
     clip: {x: 0, y: 0, width: 390, height: metrics.cssContentSize.height, scale: 1}});
   await writeFile('/tmp/uni-stats-mobile.png', Buffer.from(mobile.data, 'base64'));
   assert.deepEqual(errors, [], 'Browser console errors');
-  console.log('PASS: default values, normalized baselines/interval changes/source restoration, zero baseline notice, range, comparison/filter changes, category search, all 28 datasets, mobile layout, no browser errors.');
+  console.log('PASS: default values, normalization, All across 28 datasets, CS Bachelor entrant totals from gender and nationality, normalized sums, comparison changes from All, published totals and nonadditive restrictions, mobile layout, no browser errors.');
 } finally {socket.close();}

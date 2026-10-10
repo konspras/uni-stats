@@ -6,7 +6,9 @@ The first frontend is a single Data explorer tab, served by `server.py` on port 
 
 - All 28 collected datasets appear in a picker grouped into students, Bachelor/historical entrants, degrees, staff and finances.
 - Every non-time dimension comes from the selected snapshot's metadata. Known dimension names have English interface labels; category labels remain as published in German. Unknown dimensions use their source names.
-- Choose one comparison dimension and one or more categories from it. Every other dimension has exactly one fixed selection. There is no implicit summation, aggregate category or cross-table mapping.
+- Choose one comparison dimension and one or more categories from it. Every other dimension has one fixed selection, including **All (derived sum)** for reviewed additive datasets. Selecting All on several dimensions sums the Cartesian product of their categories. Labels distinguish derived sums from published source totals. The comparison dimension stays as separate lines; no cross-table mapping is applied.
+- Finance tables `1506030100_203`, `_204` and `_211` offer **All (published total)** for university, selecting source code `0` rather than adding a total to its components. Finance indicators `_211` are nonadditive: subject and indicator have no All sum. Unreviewed future datasets require an explicit aggregation policy before All is enabled. Staff headcount sums count category assignments, which can include the same person more than once; FTE is preferable for additive staffing comparisons.
+- Derived sums include every source category, including unknown/residual categories. If any component has a missing marker or lacks an observation, the entire sum is missing; available components are never presented as a full total. Decimal addition preserves source precision. For example, detailed CS Bachelor entrants in 2025/26 total EPFL **286** and ETHZ **369**, whether summing gender in `_123` or nationality in `_124`.
 - Select the published time range and any successful historical snapshot. A snapshot's own dictionaries interpret its codes; the latest successful snapshot is selected initially.
 - The optional **Normalize to start = 100** toggle divides each series by its own value in the first selected period and multiplies by 100. It applies to the plot, hover values and value table; source values remain available on table-cell hover and unchanged in SQLite. Changing the start period recalculates every baseline. A zero/missing baseline leaves that series unplotted with an explicit notice; it never substitutes a later year. Other valid series remain plotted. Missing subsequent observations stay gaps and subsequent zeros stay zero. The default and Reset view show source values.
 - Source markers remain visible in the raw-value table and produce plot gaps. Zero is numeric zero. The chart retains academic/calendar-year labels and the source period ordering.
@@ -22,10 +24,12 @@ At the current snapshot, the default 2025/26 values are EPFL **930** and ETHZ **
 | Endpoint | Result |
 | --- | --- |
 | `GET /api/datasets` | Available datasets, grouping, dimensions and latest snapshot |
-| `GET /api/dataset?id=…&snapshot=…` | Source metadata, measures, definitions, provenance and successful snapshot list |
-| `GET /api/series?query=…` | Validated exact-category series and original value strings |
+| `GET /api/dataset?id=…&snapshot=…` | Source metadata, measures, definitions, provenance, successful snapshot list and aggregation options |
+| `GET /api/series?query=…` | Validated category series or explicitly derived sums |
 
 `query` is a URL-encoded JSON object containing `dataset`, optional `snapshot`, `compare`, `values`, `filters`, optional `measure`, and optional `from`/`to` source period codes. The API validates dataset/snapshot ownership, dimension/category/measure membership and complete fixed filters before constructing parameterized SQL. Physical tables and source columns are resolved from database metadata and quoted as identifiers. Missing markers are never coerced to zero.
+
+Each fixed filter is either a source code string or JSON `null` for All. The details endpoint's `aggregation_options` maps eligible dimensions to `mode` (`sum` or `published_total`) and the source codes to select. Series responses include `derived` and an `aggregation` map recording each All dimension's method and category count. Exact points retain original `raw_value` strings; derived points use the computed decimal string and include `missing_components`. Normalization consumes the result afterward, so every university is indexed against its own aggregate baseline. No totals are written to SQLite.
 
 Every request opens SQLite in read-only/query-only mode and uses a consistent read transaction. Only successful published snapshots are queryable. Static serving is limited to the public assets in `web/`; repository and database files are not HTTP-downloadable.
 
@@ -72,4 +76,4 @@ chromium --headless=new --no-sandbox --disable-gpu --user-data-dir=/tmp/uni-stat
 node tests/browser_smoke.mjs
 ```
 
-The browser check exercises the actual default values, year range, comparison/filter changes, category search, every collected dataset, mobile width and console errors. It writes desktop/mobile screenshots under `/tmp`. The API has also been checked against all 28 datasets in the populated live database. The website's read-only checks leave collection history and stored observations unchanged.
+The browser check exercises default values, normalization, All on every eligible fixed dimension across all 28 datasets, CS Bachelor entrants aggregated independently by gender and nationality, published totals, ratio restrictions, comparison changes from All, mobile width and console errors. Python tests additionally cover multiple summed dimensions, decimal precision, missing markers/coordinates, unknown categories and rejection of unreviewed sums. Screenshots are written under `/tmp`. These read-only website checks leave stored observations unchanged.

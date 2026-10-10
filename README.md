@@ -18,7 +18,7 @@ The live SQLite import contains those 28 datasets and 3,519,548 rows, occupying 
 
 ## Explore the data
 
-Open [the Data explorer](http://localhost:8768). It provides all collected datasets, source-driven filters, comparison categories, a time-series chart, the underlying values and source definitions. The default view compares CS Bachelor enrolments at EPFL and ETH Zurich. Each line is an exact category combination; there is no implicit aggregation.
+Open [the Data explorer](http://localhost:8768). It provides all collected datasets, source-driven filters, comparison categories, a time-series chart, the underlying values and source definitions. The default view compares CS Bachelor enrolments at EPFL and ETH Zurich. Fixed filters offer **All (derived sum)** for additive categories, or **All (published total)** where the source provides one. Ratios and mixed indicators cannot be summed. Missing components leave gaps; normalization applies after summing. Stored source data remains unchanged.
 
 Enable **Normalize to start = 100** to compare growth relative to each series' first selected year. Zero/missing starting values are flagged rather than replaced with a later baseline. The calculation affects the display only.
 
