@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Explore historical Swiss university statistics from BFS.">
+  <title>UniStats · Pyramid</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="normalize.js" defer></script>
+  <script src="pyramid.js" defer></script>
+  <script src="subjects.js" defer></script>
+  <script src="data-provider.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">u.</span><div><strong>UniStats</strong></div></div>
+    <div class="header-status"><div class="source-badge"><span class="status-dot"></span>BFS / Swiss Federal Statistical Office</div>
+      <label id="data-mode-field" class="data-mode" hidden><span class="sr-only">Data source</span><select id="data-mode"><option value="csv">CSV · latest report</option><option value="database">Local database · snapshots</option></select></label>
+      <details id="update-status" class="update-status"><summary id="update-status-label" aria-live="polite">Checking update status…</summary>
+        <div class="update-status-panel"><strong>Automatic data updates</strong><p>Every Sunday at 15:00 · Europe/Zurich</p><dl id="update-status-details"></dl><p id="update-status-error" role="status" hidden></p><p>Charts use the last successfully collected snapshot.</p></div>
+      </details></div>
+  </header>
+  <nav class="tabs" aria-label="Main navigation"><a id="pyramid-tab" class="active-tab" aria-current="page" href="#pyramid">Pyramid</a><a id="explorer-tab" href="#explorer">Data explorer</a></nav>
+  <main>
+    <section class="intro"><h1 id="view-title">Pyramid</h1><button id="reset" class="secondary-button" type="button">Reset view <span aria-hidden="true">↺</span></button></section>
+    <div id="error" class="error" role="alert" hidden></div>
+    <div class="explorer-layout">
+      <aside class="panel controls" aria-label="Data selections">
+        <div class="panel-heading"><h2>Selection</h2><span id="dataset-count" class="pill">— datasets</span></div>
+        <label class="field">Dataset<select id="dataset" disabled><option>Loading datasets…</option></select></label>
+        <p id="dataset-description" class="helper"></p>
+        <label class="field">Measure<select id="measure"></select></label>
+        <div class="section-divider"></div>
+        <label id="compare-field" class="field">Compare by<select id="compare"></select></label>
+        <div id="compare-categories" class="compare-categories"><h3 id="university-heading" hidden>Universities</h3><label class="sr-only" for="category-search">Search comparison categories</label><input id="category-search" type="search" placeholder="Find a category…" autocomplete="off"><div id="categories" class="checkbox-list"></div><div class="comparison-footer"><span id="selected-count"></span><button id="select-all" type="button" class="text-button">Select all</button><button id="clear-all" type="button" class="text-button">Clear all</button></div></div>
+        <div id="pyramid-split" class="field" hidden><span>Split by</span><div class="segmented-control" role="group" aria-label="Pyramid split"><button id="split-gender" type="button" aria-pressed="true">Gender</button><button id="split-nationality" type="button" aria-pressed="false">Nationality</button></div></div>
+        <div class="section-divider"></div>
+        <div class="filter-heading"><h3>Keep these categories fixed</h3><span>One selection per dimension</span></div>
+        <div id="filters"></div>
+        <div class="section-divider"></div>
+        <label class="field">Snapshot<select id="snapshot"></select></label>
+      </aside>
+      <div class="results">
+        <section class="panel plot-panel" aria-labelledby="plot-title">
+          <div class="plot-heading"><div><p id="plot-group" class="eyebrow">TIME SERIES</p><h2 id="plot-title">Loading data…</h2><p id="plot-context" class="plot-context"></p></div><span id="period-badge" class="pill"></span></div>
+          <div id="legend" class="legend" aria-label="Plotted categories"></div>
+          <p id="normalization-note" class="notice" role="status" hidden></p>
+          <p id="percentage-note" class="notice" role="status" hidden></p>
+          <p id="pyramid-note" class="notice" role="status" hidden></p>
+          <div id="chart" class="chart" aria-busy="true"></div>
+          <div class="plot-footnote"><span id="aggregation-note">Values from the selected source categories.</span><span id="value-note">Missing values are gaps; source zeros remain zero.</span></div>
+          <p id="pyramid-period-note" class="helper" hidden></p>
+        </section>
+        <section class="panel chart-controls" aria-label="Chart controls">
+          <div class="time-range">
+            <div class="range-labels"><label for="from">From <output id="from-label" for="from">—</output></label><label for="to">To <output id="to-label" for="to">—</output></label></div>
+            <div id="period-slider" class="period-slider">
+              <div class="range-track"><div id="range-fill" class="range-fill"></div></div>
+              <input id="from" type="range" min="0" max="0" step="1" value="0" aria-label="Start period" disabled>
+              <input id="to" type="range" min="0" max="0" step="1" value="0" aria-label="End period" disabled>
+            </div>
+          </div>
+          <div class="chart-toggles">
+            <label class="normalize-toggle"><input id="normalize" type="checkbox">Normalize to start = 100</label>
+            <label class="normalize-toggle"><input id="stack-subjects" type="checkbox" disabled>Stack by subject</label>
+            <label class="normalize-toggle" hidden><input id="stack-universities" type="checkbox">Stack by university</label>
+            <label class="normalize-toggle"><input id="percentage" type="checkbox">Percentage of total</label>
+          </div>
+        </section>
+        <section class="panel table-panel" aria-labelledby="table-title">
+          <div class="panel-heading"><div><h2 id="table-title">Values</h2><p id="table-description" class="helper">The values exactly as published.</p></div><span id="table-count" class="pill"></span></div>
+          <div class="table-scroll"><table id="values-table"><thead></thead><tbody></tbody></table></div>
+        </section>
+        <section class="panel source-panel" aria-labelledby="source-title">
+          <div class="panel-heading"><h2 id="source-title">About this dataset</h2><a id="source-link" target="_blank" rel="noopener noreferrer">Open BFS source ↗</a></div>
+          <p id="source-name" class="source-name"></p>
+          <dl id="provenance" class="provenance"></dl>
+          <details><summary>Definitions &amp; source metadata</summary><div id="definitions"></div></details>
+        </section>
+      </div>
+    </div>
+  </main>
+  <footer>BFS / OFS / FSO<span>Source categories and labels are retained in their original language.</span></footer>
+</body>
+</html>
