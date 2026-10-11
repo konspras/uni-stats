@@ -129,3 +129,23 @@ class Publisher:
                               (self.clock().isoformat(), exported['generation'], sent.get('commit')))
                 print('Static publication pushed: ' + exported['generation'], flush=True)
         return True
+
+
+def main():
+    import argparse
+    from update_service import read_status
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--database', type=Path, default=ROOT / 'data/university_stats.sqlite3')
+    actions = parser.add_mutually_exclusive_group(required=True)
+    actions.add_argument('--queue', action='store_true', help='Queue publication in the running service; never collect BFS')
+    actions.add_argument('--status', action='store_true', help='Read persistent publication status')
+    args = parser.parse_args()
+    if not args.database.is_file():
+        parser.error('Database is missing')
+    if args.queue:
+        Publisher(args.database).request()
+    print(json.dumps(read_status(args.database)['publication'], indent=2))
+
+
+if __name__ == '__main__':
+    main()

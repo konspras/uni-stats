@@ -26,6 +26,9 @@ All URLs are relative to the site base, including `/uni-stats/`. `web/backend.js
 ```bash
 python3 scripts/export_static.py
 python3 scripts/verify_static.py
+# Queue an immediate export/push in the active service, without fetching BFS:
+python3 publication.py --queue
+python3 publication.py --status
 ```
 
 The exporter pins dataset snapshot IDs from a consistent catalog, validates every CSV cell's round trip and source row count, writes an immutable release, then atomically replaces the index. Unchanged snapshot exports reuse and verify existing files; a metadata-only status export took **0.22 seconds** locally. Change the export format version whenever immutable output logic changes. Failed export leaves the prior index usable. Local old releases may remain so already-open pages can finish requests; only the current release enters each publication.
@@ -84,3 +87,9 @@ node tests/browser_static.mjs
 # Local scheduled service, with an available database:
 node tests/browser_smoke.mjs
 ```
+
+## Activation result
+
+On 2026-10-11 the permanent service successfully pushed its initial `gh-pages` report using its own environment, with collection counts unchanged at 2 runs / 28 snapshots. The next source check remains Sunday 18 October at 15:00 Zurich. All 51 Python tests, pure-JS chart tests, static-only browser checks and the permanent-service browser suite (including CSV/database parity, snapshot enablement, selection preservation and mobile layout) passed. A fully cold largest-selection download fetched exactly 16 gzip files totaling 1,477,705 bytes in the browser.
+
+GitHub Pages returned HTTP 404 after the branch push. Pages activation remains a one-time repository setting described above; the available Git SSH access can push branches but cannot change repository Pages settings. The public site is not yet confirmed live.

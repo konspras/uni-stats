@@ -265,7 +265,7 @@ async function loadDataset(id, snapshotId, options = {}) {
       };
       if (dims.some(v => v.code === restored.compare)) state.compare = restored.compare;
       state.values = [...new Set(restored.values.map(value => mapCode(state.compare,value)).filter(value => value != null))];
-      if (!state.values.length) state.values = [preferred(dims.find(v => v.code === state.compare))];
+      if (!state.values.length && restored.values.length) state.values = [preferred(dims.find(v => v.code === state.compare))];
       state.filters = Object.fromEntries(dims.filter(v => v.code !== state.compare).map(v => [v.code,mapCode(v.code,restored.filters[v.code])]));
     }
     if (state.view === 'pyramid') {
