@@ -44,6 +44,12 @@ try {
   assert.equal(await evaluate(`state.view`), 'pyramid', 'Root URL defaults to Pyramid');
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 884, 'Desktop pyramid is 70% taller');
+  assert.equal(await evaluate(`(()=>{const c=categories(variable('Hochschule')).find(c=>c.text==='LS');return document.querySelector('#categories input[value="'+c.code+'"]').nextElementSibling.textContent;})()`),'LS — University of Lausanne');
+  assert.equal(await evaluate(`(()=>{const c=categories(variable('Hochschule')).find(c=>c.text==='EPFL');const node=document.querySelector('#categories input[value="'+c.code+'"]').nextElementSibling;return node.textContent.length===40 && node.textContent.endsWith('...') && node.title==='EPFL — École polytechnique fédérale de Lausanne';})()`),true,'Long university labels are capped and keep the full name on hover');
+  await evaluate(`document.getElementById('category-search').value='Lausanne';document.getElementById('category-search').dispatchEvent(new Event('input'))`);
+  assert.equal(await evaluate(`document.querySelectorAll('#categories input').length`),2,'Full names are searchable, including the truncated portion');
+  await evaluate(`document.getElementById('category-search').value='';document.getElementById('category-search').dispatchEvent(new Event('input'))`);
+
   async function clearAndCheck() {
     const requestCount=await evaluate(`(()=>{window.emptyRequests=0;window.originalApi=api;api=(...args)=>{window.emptyRequests++;return window.originalApi(...args);};document.getElementById('clear-all').click();return window.emptyRequests;})()`);
     assert.equal(requestCount,0,'Clear all does not request series data');
@@ -68,6 +74,8 @@ try {
 
   assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 28);
   assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['EPFL', '930'], ['ETHZ', '1428']]);
+  assert.equal(await evaluate(`[...document.querySelectorAll('#legend .legend-item span[title]')].every(node=>node.textContent.length<=40 && node.title.length>node.textContent.length)`),true,'Explorer legends use capped full university names');
+
   assert.equal(await evaluate(`document.querySelectorAll('#chart .series-line').length`), 2);
   assert.equal(await evaluate(`document.querySelectorAll('#values-table tbody tr').length`), 46);
   assert.equal(await evaluate(`document.querySelectorAll('.controls #from, .controls #to, .controls #normalize').length`), 0);

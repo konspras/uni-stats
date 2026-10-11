@@ -2,6 +2,8 @@
 
 The frontend has a **Pyramid** tab to the left of **Data explorer**, served by `server.py` on port **8768**. It reads SQLite directly; there is no collection worker, periodic task or implicit data write. No web framework, build step, charting dependency, external font or CDN is required. The root URL opens Pyramid by default; `/#explorer` opens Data explorer explicitly. Each tab retains its own selection and display mode when switching.
 
+University labels show the BFS abbreviation plus a full institution name, capped at 40 characters including `...`; hover reveals the complete label. Search matches the abbreviation and full name. This presentation mapping leaves source metadata, dataset-local codes, stored observations and API series labels unchanged. Names are based on the [BFS university list](https://www.swissstats.bfs.admin.ch/data/webviewer/appId/ch.admin.bfs.swissstat/article/issue241517992200-09/package), [BFS finance table footnotes](https://www.pxweb.bfs.admin.ch/pxweb/de/px-x-1506030100_211/-/px-x-1506030100_211.px/) and [BFS historical abbreviations](https://www.bfs.admin.ch/bfsstatic/dam/assets/350858/master). Unknown labels remain unchanged.
+
 ## Pyramid
 
 Only entrant and degree tables containing a university dimension and a gender or nationality breakdown are eligible. **Enrolled students, staff and finances are excluded**, as are flow tables lacking either supported split. The current picker contains six source tables: entrant broad/detailed subject tables `_121`–`_124` and detailed degree tables `1503040100_101`/`_102`.

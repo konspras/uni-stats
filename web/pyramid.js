@@ -96,7 +96,7 @@ function drawPyramid(data) {
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); tip.append(row);
       if (data.stacked) for (const segment of pyramidSegments(point, data.percentage)) {
         const part = el('div', undefined, 'tooltip-row');
-        part.append(el('span', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); tip.append(part);
+        part.append(categoryNode('span', 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); tip.append(part);
       }
     }
     tip.hidden = false;
@@ -126,7 +126,7 @@ function drawPyramid(data) {
             fill:data.stacked ? pyramidColor(index, data.universities.length, i) : colors[i],class:'pyramid-bar',
             'data-side':i ? 'right' : 'left','data-value':segment.value,
             ...(data.stacked ? {'data-university':segment.university} : {})});
-          bar.append(svgNode('title', {}, (segment.label ? segment.label + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(segment.value) + (data.percentage ? '%' : '')));
+          bar.append(svgNode('title', {}, (segment.label ? categoryFullLabel('Hochschule', segment.label) + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(segment.value) + (data.percentage ? '%' : '')));
           row.append(bar); offset += w;
         }
       } else if (showLabel) {

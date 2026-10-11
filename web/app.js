@@ -8,6 +8,36 @@ const names = {Hochschule: 'University', Fachrichtung: 'Subject (detailed)', Fac
   Finanzquelle: 'Funding source', Finanzierungstyp: 'Funding type', Aufwandsart: 'Expenditure type',
   Leistung: 'Activity', Kostenart: 'Cost type', Erlöskategorie: 'Revenue category', Indikator: 'Indicator'};
 const colors = ['#365bd6', '#db7853', '#278d7a', '#8d5cbe', '#b79b29', '#ca5992', '#3b90b7', '#797564'];
+// Presentation names keyed by BFS labels, never by dataset-local numeric codes.
+// Sources: BFS university list and finance table footnotes (see docs/FRONTEND.md).
+const universityNames = {
+  BS:'University of Basel', BE:'University of Bern', FR:'University of Fribourg',
+  GE:'University of Geneva', LS:'University of Lausanne', LU:'University of Lucerne',
+  NE:'University of Neuchâtel', SG:'University of St. Gallen', UZH:'University of Zurich',
+  USI:'Università della Svizzera italiana',
+  EPFL:'École polytechnique fédérale de Lausanne',
+  ETHZ:'Eidgenössische Technische Hochschule Zürich',
+  IHEID:'Institut de hautes études internationales et du développement',
+  IUKB:'Institut universitaire Kurt Bösch',
+  'FS-CH':'Universitäre Fernstudien Schweiz',
+  'PHSG-UI':'Pädagogische Hochschule St. Gallen',
+  'TH CHUR':'Theologische Hochschule Chur', 'TH Chur':'Theologische Hochschule Chur',
+  'TH-CHUR':'Theologische Hochschule Chur',
+  'Andere UI':'Other university institutions'
+};
+function categoryFullLabel(dimension, text) {
+  const full = dimension === 'Hochschule' ? universityNames[text] : null;
+  return full ? text + ' — ' + full : text;
+}
+function categoryDisplayLabel(dimension, text) {
+  const full = categoryFullLabel(dimension, text);
+  return dimension === 'Hochschule' && [...full].length > 40 ? [...full].slice(0, 37).join('') + '...' : full;
+}
+function categoryNode(tag, dimension, text) {
+  const node = el(tag, categoryDisplayLabel(dimension, text));
+  if (dimension === 'Hochschule') node.title = categoryFullLabel(dimension, text);
+  return node;
+}
 const ALL = '__derived_all__';
 const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0,
   universities: [], view: location.hash === '#explorer' ? 'explorer' : 'pyramid', views: {}};
@@ -111,8 +141,8 @@ function titleFor(dataset) {
 }
 function summary() {
   return Object.entries(state.filters).filter(([code]) => state.view !== 'pyramid' || code !== 'Hochschule').map(([code, value]) => {
-    return label(code) + ': ' + selectionLabel(code, value);
-  }).concat(state.view === 'pyramid' ? ['University: ' + categories(variable('Hochschule')).filter(c => state.universities.includes(c.code)).map(c => c.text).join(', ')] : []).join(' · ');
+    return label(code) + ': ' + categoryDisplayLabel(code, selectionLabel(code, value));
+  }).concat(state.view === 'pyramid' ? ['University: ' + categories(variable('Hochschule')).filter(c => state.universities.includes(c.code)).map(c => categoryDisplayLabel('Hochschule', c.text)).join(', ')] : []).join(' · ');
 }
 function renderCategories() {
   if (!state.detail) return;
@@ -122,7 +152,8 @@ function renderCategories() {
   const root = $('categories'); root.replaceChildren();
   const choices = categories(variable(pyramid ? 'Hochschule' : state.compare)).sort((a, b) => Number(selected.includes(b.code)) - Number(selected.includes(a.code)));
   for (const c of choices) {
-    if (query && !c.text.toLocaleLowerCase().includes(query)) continue;
+    const dimension = pyramid ? 'Hochschule' : state.compare;
+    if (query && !categoryFullLabel(dimension, c.text).toLocaleLowerCase().includes(query)) continue;
     const item = el('label', undefined, 'category');
     const input = el('input'); input.type = 'checkbox'; input.value = c.code; input.checked = selected.includes(c.code);
     input.addEventListener('change', () => {
@@ -131,7 +162,7 @@ function renderCategories() {
       if (pyramid) setUniversities(next); else state.values = next;
       $('selected-count').textContent = next.length + ' selected'; updatePlot();
     });
-    item.append(input, el('span', c.text)); root.append(item);
+    item.append(input, categoryNode('span', dimension, c.text)); root.append(item);
   }
   if (!root.children.length) root.append(el('p', 'No matching categories.', 'helper'));
   $('selected-count').textContent = selected.length + (pyramid ? ' universities selected' : ' selected');
@@ -142,7 +173,10 @@ function renderFilters() {
     const field = el('label', label(v.code), 'field'); const select = el('select'); select.dataset.dimension = v.code;
     const choices = categories(v);
     if (v.code === 'Fachrichtung') choices.sort((a, b) => a.text.localeCompare(b.text, 'de', {sensitivity:'base'}));
-    for (const c of choices) option(select, c.code, c.text);
+    for (const c of choices) {
+      option(select, c.code, categoryDisplayLabel(v.code, c.text));
+      if (v.code === 'Hochschule') select.lastChild.title = categoryFullLabel(v.code, c.text);
+    }
     const aggregation = state.detail.aggregation_options[v.code];
     if (aggregation) option(select, ALL, aggregation.mode === 'sum' ? 'All (derived sum)' : 'All (published total)');
     select.value = state.filters[v.code] === null ? ALL : state.filters[v.code];
@@ -289,14 +323,14 @@ function renderResults() {
   $('legend').replaceChildren(); for (const [i, s] of data.series.entries()) {
     if (state.view === 'pyramid' && !pyramidSides(data).sides.includes(s)) continue;
     const index = state.view === 'pyramid' ? pyramidSides(data).sides.indexOf(s) : i;
-    const item = el('span', undefined, 'legend-item'); item.append(el('span', undefined, 'legend-dot c' + index % colors.length), el('span', s.label + (s.normalization_issue ? ' (no baseline)' : ''))); $('legend').append(item);
+    const item = el('span', undefined, 'legend-item'); item.append(el('span', undefined, 'legend-dot c' + index % colors.length), categoryNode('span', data.compare, s.label)); if (s.normalization_issue) item.append(el('span', ' (no baseline)')); $('legend').append(item);
   }
   if (data.stacked) {
     $('legend').replaceChildren();
     for (const [index, university] of data.universities.entries()) {
       const item = el('span', undefined, 'legend-item');
       for (const side of [0,1]) {const dot = el('span', undefined, 'legend-dot'); dot.style.background = pyramidColor(index, data.universities.length, side); item.append(dot);}
-      item.append(el('span', university.label)); $('legend').append(item);
+      item.append(categoryNode('span', 'Hochschule', university.label)); $('legend').append(item);
     }
   }
   const others = state.view === 'pyramid' ? pyramidSides(data).other : [];
@@ -315,7 +349,7 @@ function renderResults() {
   $('table-description').textContent = data.percentage ? 'Share of the selected series total in each period. Hover for the original value.' : data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its ' + valueKind.toLowerCase() + '.' : data.derived ? 'Derived sums of source values.' : 'The values exactly as published.';
   drawChart(data);
   const table = $('values-table'), head = el('tr'); head.append(el('th', 'Period'));
-  for (const s of data.series) {const th = el('th', s.label); th.scope = 'col'; head.append(th);} head.firstChild.scope = 'col';
+  for (const s of data.series) {const th = categoryNode('th', data.compare, s.label); th.scope = 'col'; head.append(th);} head.firstChild.scope = 'col';
   table.querySelector('thead').replaceChildren(head); const body = table.querySelector('tbody'); body.replaceChildren();
   for (let j = data.periods.length - 1; j >= 0; j--) {
     const row = el('tr'); row.append(el('td', data.periods[j]));
@@ -397,7 +431,7 @@ function drawChart(data) {
     tooltip.replaceChildren(el('strong', data.periods[inspected]));
     for (const [i, s] of data.series.entries()) {
       const point = s.points[inspected], row = el('div', undefined, 'tooltip-row'), name = el('span');
-      name.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label)); row.append(name, el('b', point.value === null ? data.normalized || data.percentage ? '—' : point.raw_value ?? '—' : number(point.value) + (data.percentage ? '%' : '')));
+      name.append(el('span', undefined, 'legend-dot c' + i % colors.length), categoryNode('span', data.compare, s.label)); row.append(name, el('b', point.value === null ? data.normalized || data.percentage ? '—' : point.raw_value ?? '—' : number(point.value) + (data.percentage ? '%' : '')));
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); tooltip.append(row);
       if (point.value !== null) hover.append(svgNode('circle', {cx: x(inspected), cy: y(data.percentage ? point.stack_upper : point.value), r: 4, fill: colors[i % colors.length], class: 'point'}));
     }
