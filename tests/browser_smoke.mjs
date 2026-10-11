@@ -44,6 +44,11 @@ try {
   assert.equal(await evaluate(`state.view`), 'pyramid', 'Root URL defaults to Pyramid');
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 884, 'Desktop pyramid is 70% taller');
+  assert.equal(await evaluate(`document.querySelector('#filters select[data-dimension="Fachrichtung"] option:checked').textContent`),'Informatik (Computer Science)');
+  assert.equal(await evaluate(`document.getElementById('plot-title').textContent`),'Informatik (Computer Science)');
+  assert.equal(await evaluate(`(()=>{const labels=[...document.querySelector('#filters select[data-dimension="Fachrichtung"]').options].filter(o=>o.value!=='__derived_all__').map(o=>variable('Fachrichtung').valueTexts[variable('Fachrichtung').values.indexOf(o.value)]);return labels.every((text,i)=>!i||labels[i-1].localeCompare(text,'de',{sensitivity:'base'})<=0);})()`),true,'Detailed subjects still sort by German names');
+  assert.equal(await evaluate(`categoryFullLabel('Fachrichtung','New German subject')`),'New German subject','Unknown subjects retain German alone');
+
   assert.equal(await evaluate(`(()=>{const c=categories(variable('Hochschule')).find(c=>c.text==='LS');return document.querySelector('#categories input[value="'+c.code+'"]').nextElementSibling.textContent;})()`),'LS — University of Lausanne');
   assert.equal(await evaluate(`(()=>{const c=categories(variable('Hochschule')).find(c=>c.text==='EPFL');const node=document.querySelector('#categories input[value="'+c.code+'"]').nextElementSibling;return node.textContent.length===40 && node.textContent.endsWith('...') && node.title==='EPFL — École polytechnique fédérale de Lausanne';})()`),true,'Long university labels are capped and keep the full name on hover');
   await evaluate(`document.getElementById('category-search').value='Lausanne';document.getElementById('category-search').dispatchEvent(new Event('input'))`);
@@ -369,6 +374,14 @@ try {
   assert.equal(await evaluate(`state.detail.group`), 'Bachelor entrants', 'Direct pyramid URL has flow-only defaults');
   await send('Page.navigate',{url:base+'/#explorer'}); await wait(ready + ` && state.view==='explorer'`);
   assert.equal(await evaluate(`state.detail.group`), 'Enrolled students', 'Explicit explorer URL retains its own default');
+  await select('compare','Fachrichtung'); await wait(ready + ` && state.compare==='Fachrichtung'`);
+  await evaluate(`document.getElementById('category-search').value='Computer Science';document.getElementById('category-search').dispatchEvent(new Event('input'))`);
+  assert.equal(await evaluate(`document.querySelectorAll('#categories input').length`),1,'Subjects are searchable in English');
+  assert.equal(await evaluate(`document.querySelector('#categories input').nextElementSibling.textContent`),'Informatik (Computer Science)');
+  assert.equal(await evaluate(`document.querySelector('#legend .legend-item').textContent`),'Informatik (Computer Science)');
+  assert.equal(await evaluate(`document.querySelector('#values-table thead th:nth-child(2)').textContent`),'Informatik (Computer Science)');
+  assert.equal(await evaluate(`state.data.series[0].label`),'Informatik','Original BFS labels stay intact');
+
   assert.deepEqual(errors, [], 'Browser console errors');
   console.log('PASS: explorer regression checks, flow-only Pyramid tab, both splits, source-period mapping, all-university sums, degrees and unknown gender, percentage mode, tab state restoration, direct URLs, keyboard inspection and mobile layout.');
 } finally {socket.close();}

@@ -4,6 +4,20 @@ The frontend has a **Pyramid** tab to the left of **Data explorer**, served by `
 
 University labels show the BFS abbreviation plus a full institution name, capped at 40 characters including `...`; hover reveals the complete label. Search matches the abbreviation and full name. This presentation mapping leaves source metadata, dataset-local codes, stored observations and API series labels unchanged. Names are based on the [BFS university list](https://www.swissstats.bfs.admin.ch/data/webviewer/appId/ch.admin.bfs.swissstat/article/issue241517992200-09/package), [BFS finance table footnotes](https://www.pxweb.bfs.admin.ch/pxweb/de/px-x-1506030100_211/-/px-x-1506030100_211.px/) and [BFS historical abbreviations](https://www.bfs.admin.ch/bfsstatic/dam/assets/350858/master). Unknown labels remain unchanged.
 
+## Subject translations
+
+`web/subject-translations.json` is the version-controlled German → English display dictionary for **Fachrichtung** and **Fachbereich**, shared by every dataset. The UI shows `Informatik (Computer Science)` in selections, plot titles/context, legends, tables and tooltips. German source strings and numeric category codes remain untouched; detailed subject dropdowns sort by the original German names. Checkbox search matches both languages.
+
+The initial dictionary covers all 119 distinct source labels in the stored snapshots, including abbreviated broad subjects, staff/finance categories and historical labels. These are project-maintained translations, not official BFS English metadata: the attempted English metadata endpoints for tables `_123` and `_121` returned HTTP 400. The file records that provenance. Specific terms preserve source distinctions (e.g. Economics versus Business Administration, and separate historical teacher-education streams). Translations are display aids, not cross-table category mappings.
+
+After a data collection or before release, run:
+
+```bash
+python3 scripts/check_subject_translations.py
+```
+
+The read-only checker inspects all completed snapshots, reports missing/unused labels, and exits 1 if a source label lacks a nonempty translation. It rejects duplicate keys and invalid entries. For a new or renamed category, add its exact German source label and an English translation to the dictionary, review it, and rerun the checker. Keep historical keys for old snapshots. Unknown labels display German alone and emit a browser-console warning for review; no runtime translation API or database migration is involved.
+
 ## Pyramid
 
 Only entrant and degree tables containing a university dimension and a gender or nationality breakdown are eligible. **Enrolled students, staff and finances are excluded**, as are flow tables lacking either supported split. The current picker contains six source tables: entrant broad/detailed subject tables `_121`–`_124` and detailed degree tables `1503040100_101`/`_102`.

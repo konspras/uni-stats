@@ -110,6 +110,8 @@ class ExplorerTests(unittest.TestCase):
             with urlopen(base + '/') as response:
                 self.assertIn(b'Data explorer', response.read())
                 self.assertIn("default-src 'self'", response.headers['Content-Security-Policy'])
+            with urlopen(base + '/subject-translations.json') as response:
+                self.assertEqual(json.load(response)['translations']['Informatik'], 'Computer Science')
             with urlopen(base + '/api/series?query=' + quote(json.dumps(self.query))) as response:
                 self.assertEqual(len(json.load(response)['series']), 2)
             for path, status in [('/data/university_stats.sqlite3', 404), ('/../server.py', 404),

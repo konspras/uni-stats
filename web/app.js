@@ -26,6 +26,10 @@ const universityNames = {
   'Andere UI':'Other university institutions'
 };
 function categoryFullLabel(dimension, text) {
+  if (['Fachrichtung', 'Fachbereich'].includes(dimension)) {
+    const english = state.subjectTranslations[text];
+    return english ? text + ' (' + english + ')' : text;
+  }
   const full = dimension === 'Hochschule' ? universityNames[text] : null;
   return full ? text + ' — ' + full : text;
 }
@@ -40,7 +44,7 @@ function categoryNode(tag, dimension, text) {
 }
 const ALL = '__derived_all__';
 const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0,
-  universities: [], view: location.hash === '#explorer' ? 'explorer' : 'pyramid', views: {}};
+  universities: [], subjectTranslations: {}, view: location.hash === '#explorer' ? 'explorer' : 'pyramid', views: {}};
 const date = value => value ? new Date(value).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}) : 'Not supplied';
 const label = code => names[code] || code;
 const number = value => value === null ? '—' : new Intl.NumberFormat(undefined, {maximumFractionDigits: 2}).format(value);
@@ -221,6 +225,9 @@ async function loadDataset(id, snapshotId, options = {}) {
     const detail = await api('/api/dataset?id=' + encodeURIComponent(id) + (snapshotId ? '&snapshot=' + snapshotId : ''), state.datasetController.signal);
     if (generation !== state.generation) return;
     state.detail = detail; state.filters = {};
+    const untranslated = [...new Set(detail.metadata.variables.filter(v => ['Fachrichtung','Fachbereich'].includes(v.code))
+      .flatMap(v => v.valueTexts).filter(text => !state.subjectTranslations[text]))];
+    if (untranslated.length) console.warn('BFS subject labels need English translations:', untranslated);
     const dims = detail.metadata.variables.filter(v => !v.time);
     for (const v of dims) state.filters[v.code] = preferred(v);
     state.compare = state.view === 'pyramid' ? dims.find(v => pyramidSplits.includes(v.code)).code : dims.find(v => v.code === 'Hochschule')?.code || dims[0].code;
@@ -317,7 +324,7 @@ function renderResults() {
   state.plotData = data;
   $('plot-group').textContent = detail.group.toUpperCase();
   const subject = Object.entries(state.filters).find(([code]) => ['Fachrichtung', 'Fachbereich'].includes(code));
-  $('plot-title').textContent = subject ? selectionLabel(...subject) : label(state.compare) + ' comparison';
+  $('plot-title').textContent = subject ? categoryDisplayLabel(subject[0], selectionLabel(...subject)) : label(state.compare) + ' comparison';
   $('plot-context').textContent = summary();
   $('period-badge').textContent = data.periods[0] + ' — ' + data.periods.at(-1);
   $('legend').replaceChildren(); for (const [i, s] of data.series.entries()) {
@@ -339,7 +346,7 @@ function renderResults() {
   $('pyramid-period-note').textContent = detail.group === 'Degrees' ? 'Rows: graduation year (calendar year), not entry year.' : 'Rows: entry year (academic year), not the number still enrolled.';
   const unavailable = data.series.filter(s => s.normalization_issue);
   $('normalization-note').hidden = !unavailable.length;
-  $('normalization-note').textContent = unavailable.length ? 'Cannot normalize ' + unavailable.map(s => s.label).join(', ') +
+  $('normalization-note').textContent = unavailable.length ? 'Cannot normalize ' + unavailable.map(s => categoryDisplayLabel(data.compare, s.label)).join(', ') +
     ': the value in ' + data.periods[0] + ' is zero or missing. Select another start year.' : '';
   $('percentage-note').hidden = !data.percentage_missing;
   $('percentage-note').textContent = data.percentage_missing ? 'Percentage gaps: ' + data.percentage_missing + ' periods have missing or negative values, or a zero total.' : '';
@@ -505,7 +512,8 @@ window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer 
 }, 100);});
 async function init() {
   try {
-    const result = await api('/api/datasets'); state.catalog = result.datasets; $('dataset-count').textContent = result.datasets.length + ' datasets';
+    const [result, translations] = await Promise.all([api('/api/datasets'), api('/subject-translations.json')]);
+    state.subjectTranslations = translations.translations; state.catalog = result.datasets; $('dataset-count').textContent = result.datasets.length + ' datasets';
     if (!result.datasets.length) throw new Error('No collected datasets are available yet.');
     renderView(); $('dataset').disabled = false; await loadDataset(defaultDataset());
   } catch (e) {error(e.message); $('chart').replaceChildren(el('div', 'Data is currently unavailable.', 'chart-message')); $('chart').setAttribute('aria-busy', 'false');}
