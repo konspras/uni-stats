@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 
-const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor, pyramidCount} = vm.runInNewContext(
-  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor, pyramidCount});');
+const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor, pyramidCount, pyramidPeriodLabel} = vm.runInNewContext(
+  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor, pyramidCount, pyramidPeriodLabel});');
 const dataset = (id, group, dimensions) => ({id, group, dimensions});
 const catalog = [
   dataset('entrants-gender', 'Bachelor entrants', ['Fachrichtung', 'Geschlecht', 'Hochschule']),
@@ -95,3 +95,11 @@ assert.equal(pyramidCount({value:81.5,raw_value:'233'},true),233,'Percentage lab
 assert.equal(pyramidCount({value:null,raw_value:'0'},true),0,'Preserve known zero counts even when percentage composition is unavailable');
 for(const raw of [null,undefined,'','...']) assert.equal(pyramidCount({value:null,raw_value:raw},true),null);
 console.log('PASS: wider palette, zero-count shade allocation and count labels in percentage mode.');
+
+assert.equal(pyramidPeriodLabel('2025',2026),'2025 (1)');
+assert.equal(pyramidPeriodLabel('2025/26',2026),'2025/26 (1)','Academic elapsed years use the starting year');
+assert.equal(pyramidPeriodLabel('2026',2026),'2026 (0)');
+assert.equal(pyramidPeriodLabel('1980/81',2026),'1980/81 (46)');
+assert.equal(pyramidPeriodLabel('2025',2027),'2025 (2)','Elapsed years follow the current calendar year');
+assert.equal(pyramidPeriodLabel('Unknown',2026),'Unknown');
+console.log('PASS: calendar and academic year shorthand, current year and unsupported periods.');

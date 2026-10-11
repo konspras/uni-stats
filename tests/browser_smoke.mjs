@@ -238,10 +238,14 @@ try {
   assert.equal(await evaluate(`document.querySelectorAll('#filters select[data-dimension="Hochschule"]').length`), 0);
   assert.deepEqual(await evaluate(`['left','right'].map(side=>document.querySelector('.pyramid-row:last-of-type .pyramid-bar[data-side="'+side+'"]').getAttribute('data-value'))`), ['233','53']);
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>node.firstChild.nodeValue)`),['233','53'],'Unstacked labels show each population count');
+  assert.equal(await evaluate(`document.querySelector('.pyramid-row:last-of-type .pyramid-year').textContent`),'2025/26 ('+(new Date().getFullYear()-2025)+')');
+  assert.equal(await evaluate(`document.querySelector('.pyramid-total[data-count="0"]')`),null,'Zero count labels are hidden');
+  assert.equal(await evaluate(`(()=>{const source=state.plotData,modified=structuredClone(source);modified.series[0].points.at(-1).value=0;modified.series[0].points.at(-1).raw_value='0';drawPyramid(modified);const row=document.querySelector('.pyramid-row:last-of-type');const valid=!row.querySelector('.pyramid-total[data-side="left"]') && row.querySelector('.pyramid-total[data-side="right"]').dataset.count==='53';drawPyramid(source);return valid;})()`),true,'A zero total hides only its own label');
+
 
   assert.deepEqual(await evaluate(`['.pyramid-row:first-of-type','.pyramid-row:last-of-type'].map(s=>document.querySelector(s).getAttribute('data-period'))`), ['1980/81','2025/26']);
   async function checkPyramidFit() {
-    assert.equal(await evaluate(`(()=>{const root=document.getElementById('chart'),box=root.getBoundingClientRect(),labels=[...document.querySelectorAll('.pyramid-total')];return labels.length===state.data.periods.length*2 && labels.every(node=>{const b=node.getBoundingClientRect();return b.left>=box.left && b.right<=box.right && b.top>=box.top && b.bottom<=box.bottom;});})()`),true,'Every year has two total labels that fit the fixed chart');
+    assert.equal(await evaluate(`(()=>{const root=document.getElementById('chart'),box=root.getBoundingClientRect(),labels=[...document.querySelectorAll('.pyramid-total')];return labels.length===pyramidSides(state.plotData).sides.flatMap(s=>s.points).filter(p=>pyramidCount(p,state.plotData.percentage)!==0).length && labels.every(node=>{const b=node.getBoundingClientRect();return b.left>=box.left && b.right<=box.right && b.top>=box.top && b.bottom<=box.bottom;});})()`),true,'Nonzero totals and missing-count labels fit the fixed chart');
 
     assert.equal(await evaluate(`(()=>{const r=document.getElementById('chart'),b=r.getBoundingClientRect();
       return r.scrollHeight<=r.clientHeight && [...document.querySelectorAll('.pyramid-bar')].every(bar=>{
@@ -343,6 +347,8 @@ try {
   assert.equal(await evaluate(`state.data.series.length`), 3);
   assert.deepEqual(await evaluate(`pyramidSides(state.data).sides.map(s=>s.points.at(-1).raw_value)`), ['172','35']);
   assert.equal(await evaluate(`document.getElementById('pyramid-period-note').textContent.includes('graduation year')`), true);
+  assert.equal(await evaluate(`document.querySelector('.pyramid-row:last-of-type .pyramid-year').textContent`),'2025 ('+(new Date().getFullYear()-2025)+')','Graduation rows show elapsed calendar years');
+
   assert.equal(await evaluate(`document.querySelectorAll('#values-table thead th').length`), 4);
   assert.equal(await evaluate(`(()=>{const source=state.data, modified=structuredClone(source);
     const unknown=pyramidSides(modified).other[0];unknown.points.at(-1).value=10;unknown.points.at(-1).raw_value='10';

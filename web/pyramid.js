@@ -74,6 +74,11 @@ function pyramidCount(point, percentage) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function pyramidPeriodLabel(period, currentYear = new Date().getFullYear()) {
+  const match = /^(\d{4})(?:\/\d{2,4})?$/.exec(period);
+  return match ? period + ' (' + (currentYear - Number(match[1])) + ')' : period;
+}
+
 function pyramidLayout(count, containerWidth, containerHeight, narrow) {
   const width = narrow ? 520 : 860, scale = containerWidth / width;
   const height = containerHeight / scale, top = 62 / scale, bottom = 40 / scale;
@@ -91,7 +96,8 @@ function drawPyramid(data) {
   const narrow = window.matchMedia('(max-width:720px)').matches;
   const {width, height, top, bottom, rowHeight, fontSize, labelStride, barHeight, barInset, scale} =
     pyramidLayout(data.periods.length, root.clientWidth, root.clientHeight, narrow);
-  const longestLabel = Math.max(...data.periods.map(p => p.length));
+  const periodLabels = data.periods.map(p => pyramidPeriodLabel(p));
+  const longestLabel = Math.max(...periodLabels.map(p => p.length));
   const totalFontSize = Math.min((narrow ? 10 : 12) / scale, rowHeight * 0.72);
   const countTexts = sides.flatMap(s => s.points.map(p => number(pyramidCount(p, data.percentage))));
   const labelSpace = Math.max(...countTexts.map(t => t.length)) * totalFontSize * 0.65 + 12 / scale;
@@ -141,7 +147,7 @@ function drawPyramid(data) {
     const showLabel = j === 0 || j === data.periods.length - 1 || (j % labelStride === 0 && data.periods.length - 1 - j >= labelStride);
     row.append(svgNode('rect', {x:edge,y,width:width-2*edge,height:rowHeight,class:'pyramid-row-hit'}));
     if (showLabel) {
-      const year = svgNode('text', {x:center,y:y+rowHeight/2,'text-anchor':'middle','dominant-baseline':'middle',class:'pyramid-year'}, data.periods[j]);
+      const year = svgNode('text', {x:center,y:y+rowHeight/2,'text-anchor':'middle','dominant-baseline':'middle',class:'pyramid-year'}, periodLabels[j]);
       year.style.fontSize = fontSize + 'px'; row.append(year);
     }
     for (const [i, s] of sides.entries()) {
@@ -161,6 +167,7 @@ function drawPyramid(data) {
         }
       }
       const count = pyramidCount(point, data.percentage), outside = valid ? barWidth(point.value) : 0;
+      if (count === 0) continue;
       const total = svgNode('text', {x:base+(i ? 1 : -1)*(outside+6/scale),y:y+rowHeight/2,
         'text-anchor':i ? 'start' : 'end','dominant-baseline':'middle',class:'pyramid-total',
         'data-side':i ? 'right' : 'left','data-count':count ?? ''}, number(count));
