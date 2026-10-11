@@ -200,6 +200,40 @@ try {
   assert.equal(await evaluate(`document.querySelectorAll('#filters select[data-dimension="Hochschule"]').length`), 1);
   assert.deepEqual(await evaluate(`['left','right'].map(side=>document.querySelector('.pyramid-row:last-of-type .pyramid-bar[data-side="'+side+'"]').getAttribute('data-value'))`), ['233','53']);
   assert.deepEqual(await evaluate(`['.pyramid-row:first-of-type','.pyramid-row:last-of-type'].map(s=>document.querySelector(s).getAttribute('data-period'))`), ['1980/81','2025/26']);
+  async function checkPyramidFit() {
+    assert.equal(await evaluate(`(()=>{const r=document.getElementById('chart'),b=r.getBoundingClientRect();
+      return r.scrollHeight<=r.clientHeight && [...document.querySelectorAll('.pyramid-bar')].every(bar=>{
+        const x=bar.getBoundingClientRect();return x.top>=b.top && x.bottom<=b.bottom;
+      });})()`), true, 'All bars fit the fixed container without scrolling');
+    assert.equal(await evaluate(`(()=>{const labels=[...document.querySelectorAll('.pyramid-year')].map(t=>t.getBoundingClientRect());
+      return labels.every((b,i)=>!i || b.top>=labels[i-1].bottom);})()`), true, 'Visible year labels do not overlap');
+  }
+  await checkPyramidFit();
+  const fullHeight=await evaluate(`document.getElementById('chart').clientHeight`);
+  async function checkSyntheticPyramid() {
+    const measurements=await evaluate(`(()=>{const source=state.plotData,stats=[];
+      for(const count of [2,100]) {
+        const periods=Array.from({length:count},(_,i)=>String(1900+i));
+        const data={...source,periods,series:source.series.map(s=>({...s,points:periods.map(period=>({...s.points.at(-1),period}))}))};
+        drawPyramid(data);
+        const root=document.getElementById('chart');
+        const years=[...document.querySelectorAll('.pyramid-year')].map(t=>t.getBoundingClientRect());
+        const bars=[...document.querySelectorAll('.pyramid-bar')].map(t=>t.getBoundingClientRect());
+        stats.push({height:root.clientHeight,noScroll:root.scrollHeight<=root.clientHeight,
+          rows:document.querySelectorAll('.pyramid-row').length,barHeight:bars[0].height,
+          labelsFit:years.every((b,i)=>!i || b.top>=years[i-1].bottom),
+          barsFit:bars.every(b=>b.top>=root.getBoundingClientRect().top && b.bottom<=root.getBoundingClientRect().bottom)});
+      }
+      document.getElementById('chart').focus();document.getElementById('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}));
+      const inspected=document.querySelector('#chart .tooltip strong').textContent;
+      drawPyramid(source);return {stats,inspected};})()`);
+    assert.deepEqual(measurements.stats.map(s=>s.rows),[2,100]);
+    assert.equal(measurements.stats[0].height,measurements.stats[1].height);
+    assert(measurements.stats.every(s=>s.noScroll && s.labelsFit && s.barsFit));
+    assert(measurements.stats[0].barHeight>measurements.stats[1].barHeight*40);
+    assert.equal(measurements.inspected,'1999','Dense unlabeled years remain keyboard-inspectable');
+  }
+  await checkSyntheticPyramid();
   await evaluate(`document.getElementById('split-nationality').click()`); await wait(ready + ` && state.compare==='Staatsangehörigkeit (Kategorie)'`);
   assert.equal(await evaluate(`state.data.dataset`), 'px-x-1502040100_124');
   assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).raw_value)`), ['134','152']);
@@ -247,12 +281,15 @@ try {
   await evaluate(`document.getElementById('reset').click()`); await wait(ready + ` && state.data.dataset==='px-x-1502040100_123'`);
   assert.equal(await evaluate(`document.getElementById('percentage').checked`), false);
   await select('from','41'); await wait(ready + ` && state.data.periods.length===5`);
+  assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), fullHeight);
+  await checkPyramidFit();
   await evaluate(`document.getElementById('chart').focus();document.getElementById('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
   assert.equal(await evaluate(`document.querySelector('#chart .tooltip strong').textContent`), '2025/26');
   const pyramidDesktop = await send('Page.captureScreenshot', {format:'png'});
   await writeFile('/tmp/uni-stats-pyramid-desktop.png',Buffer.from(pyramidDesktop.data,'base64'));
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await wait(`document.documentElement.scrollWidth<=390 && document.querySelector('#chart svg').getAttribute('viewBox').startsWith('0 0 520 ')`);
+  await checkPyramidFit(); await checkSyntheticPyramid();
   const pyramidMetrics=await send('Page.getLayoutMetrics');
   const pyramidMobile=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width:390,height:pyramidMetrics.cssContentSize.height,scale:1}});
   await writeFile('/tmp/uni-stats-pyramid-mobile.png',Buffer.from(pyramidMobile.data,'base64'));

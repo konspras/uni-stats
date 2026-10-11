@@ -18,14 +18,25 @@ function pyramidSides(data) {
     labels: data.compare === 'Geschlecht' ? ['Men', 'Women'] : ['Swiss nationals', 'Foreign nationals']};
 }
 
+function pyramidLayout(count, containerWidth, containerHeight, narrow) {
+  const width = narrow ? 520 : 860, scale = containerWidth / width;
+  const height = containerHeight / scale, top = 62 / scale, bottom = 40 / scale;
+  const rowHeight = (height - top - bottom) / Math.max(1, count);
+  const fontSize = Math.min(16, Math.max(10, rowHeight * scale * 0.6)) / scale;
+  const labelStride = Math.max(1, Math.ceil(fontSize * 1.3 / rowHeight));
+  return {width, height, top, bottom, rowHeight, fontSize, labelStride,
+    barHeight:rowHeight * 0.85, barInset:rowHeight * 0.075, scale};
+}
+
 function drawPyramid(data) {
   const root = $('chart'); root.replaceChildren(); root.onkeydown = null; root.onblur = null;
   root.removeAttribute('tabindex'); root.removeAttribute('aria-label');
   const {sides, labels} = pyramidSides(data);
   const narrow = window.matchMedia('(max-width:720px)').matches;
-  const width = narrow ? 520 : 860, rowHeight = narrow ? 26 : 21, top = 62;
-  const height = top + data.periods.length * rowHeight + 48;
-  const center = width / 2, gap = narrow ? 48 : 44, edge = 30;
+  const {width, height, top, bottom, rowHeight, fontSize, labelStride, barHeight, barInset, scale} =
+    pyramidLayout(data.periods.length, root.clientWidth, root.clientHeight, narrow);
+  const longestLabel = Math.max(...data.periods.map(p => p.length));
+  const center = width / 2, gap = Math.max(narrow ? 48 : 44, longestLabel * fontSize * 0.65 / 2 + 8 / scale), edge = 30;
   const half = center - gap - edge;
   const values = sides.flatMap(s => s.points.map(p => p.value)).filter(v => Number.isFinite(v) && v >= 0);
   const largest = Math.max(0, ...values);
@@ -36,11 +47,11 @@ function drawPyramid(data) {
   svg.append(svgNode('title', {}, data.measure + ' by year and ' + label(data.compare).toLowerCase()));
   for (const side of [0, 1]) {
     const base = center + (side ? gap : -gap), direction = side ? 1 : -1;
-    svg.append(svgNode('text', {x:base + direction * half / 2,y:15,'text-anchor':'middle',class:'pyramid-side-title'}, labels[side]));
+    svg.append(svgNode('text', {x:base + direction * half / 2,y:18/scale,'text-anchor':'middle',class:'pyramid-side-title'}, labels[side]));
     for (let tick = 0; tick <= 4; tick++) {
       const value = max * tick / 4, x = base + direction * barWidth(value);
-      svg.append(svgNode('line', {x1:x,x2:x,y1:top-7,y2:height-39,class:'grid-line'}));
-      svg.append(svgNode('text', {x,y:40,'text-anchor':'middle'}, number(value) + (data.percentage ? '%' : '')));
+      svg.append(svgNode('line', {x1:x,x2:x,y1:top,y2:height-bottom,class:'grid-line'}));
+      svg.append(svgNode('text', {x,y:42/scale,'text-anchor':'middle'}, number(value) + (data.percentage ? '%' : '')));
     }
   }
   const tip = el('div', undefined, 'tooltip'); tip.hidden = true;
@@ -53,30 +64,37 @@ function drawPyramid(data) {
     }
     tip.hidden = false;
     tip.style.left = Math.max(5, Math.min(root.clientWidth - tip.offsetWidth - 5, root.clientWidth / 2 + 12)) + 'px';
-    const rowY = (top + index * rowHeight) * root.clientWidth / width;
-    tip.style.top = Math.max(root.scrollTop + 5, rowY - tip.offsetHeight) + 'px';
+    const rowY = (top + (index + 0.5) * rowHeight) * scale;
+    tip.style.top = Math.max(5, Math.min(root.clientHeight - tip.offsetHeight - 5, rowY - tip.offsetHeight)) + 'px';
   }
   let inspected = data.periods.length - 1;
   for (let j = 0; j < data.periods.length; j++) {
     const y = top + j * rowHeight;
     const row = svgNode('g', {'data-period':data.periods[j],class:'pyramid-row'});
-    row.append(svgNode('rect', {x:edge,y:y-4,width:width-2*edge,height:rowHeight,class:'pyramid-row-hit'}));
-    row.append(svgNode('text', {x:center,y:y+rowHeight/2-1,'text-anchor':'middle',class:'pyramid-year'}, data.periods[j]));
+    const showLabel = j === 0 || j === data.periods.length - 1 || (j % labelStride === 0 && data.periods.length - 1 - j >= labelStride);
+    row.append(svgNode('rect', {x:edge,y,width:width-2*edge,height:rowHeight,class:'pyramid-row-hit'}));
+    if (showLabel) {
+      const year = svgNode('text', {x:center,y:y+rowHeight/2,'text-anchor':'middle','dominant-baseline':'middle',class:'pyramid-year'}, data.periods[j]);
+      year.style.fontSize = fontSize + 'px'; row.append(year);
+    }
     for (const [i, s] of sides.entries()) {
       const point = s.points[j], base = center + (i ? gap : -gap);
       const valid = Number.isFinite(point.value) && point.value >= 0;
       if (valid) {
         const w = barWidth(point.value);
-        const bar = svgNode('rect', {x:i ? base : base-w,y,width:w,height:rowHeight-5,
+        const bar = svgNode('rect', {x:i ? base : base-w,y:y+barInset,width:w,height:barHeight,
           fill:colors[i],class:'pyramid-bar','data-side':i ? 'right' : 'left','data-value':point.value});
         bar.append(svgNode('title', {}, labels[i] + ', ' + data.periods[j] + ': ' + number(point.value) + (data.percentage ? '%' : '')));
         row.append(bar);
-      } else row.append(svgNode('text', {x:base+(i ? 12 : -12),y:y+rowHeight/2-1,'text-anchor':'middle'}, '—'));
+      } else if (showLabel) {
+        const marker = svgNode('text', {x:base+(i ? 12 : -12),y:y+rowHeight/2,'text-anchor':'middle','dominant-baseline':'middle'}, '—');
+        marker.style.fontSize = fontSize + 'px'; row.append(marker);
+      }
     }
     row.addEventListener('pointerenter', () => {inspected = j; inspect(j);});
     svg.append(row);
   }
-  svg.append(svgNode('text', {x:center,y:height-10,'text-anchor':'middle',class:'axis-title'}, data.percentage ? 'Share of each year’s total (%)' : data.derived ? 'Derived count' : 'Count'));
+  svg.append(svgNode('text', {x:center,y:height-12/scale,'text-anchor':'middle',class:'axis-title'}, data.percentage ? 'Share of each year’s total (%)' : data.derived ? 'Derived count' : 'Count'));
   root.append(svg, tip); root.tabIndex = 0;
   root.setAttribute('aria-label', 'Pyramid. Oldest year at top, newest at bottom. Use arrow keys to inspect years.');
   const hide = () => {tip.hidden = true;}; svg.addEventListener('pointerleave', hide); root.onblur = hide;
@@ -84,8 +102,6 @@ function drawPyramid(data) {
     if (!['ArrowUp','ArrowDown','Home','End'].includes(event.key)) return;
     event.preventDefault();
     inspected = event.key === 'Home' ? 0 : event.key === 'End' ? data.periods.length-1 : Math.max(0,Math.min(data.periods.length-1,inspected+(event.key==='ArrowDown' ? 1 : -1)));
-    const y = (top + inspected * rowHeight) * root.clientWidth / width;
-    if (y < root.scrollTop || y > root.scrollTop + root.clientHeight - 30) root.scrollTop = Math.max(0,y-root.clientHeight/2);
     inspect(inspected);
   };
 }
