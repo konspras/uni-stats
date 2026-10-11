@@ -18,6 +18,39 @@ function pyramidSides(data) {
     labels: data.compare === 'Geschlecht' ? ['Men', 'Women'] : ['Swiss nationals', 'Foreign nationals']};
 }
 
+// Keep university components alongside totals so display modes share one denominator.
+function sumPyramidUniversities(universities) {
+  if (!universities.length) throw new Error('Select at least one university.');
+  const first = universities[0].data;
+  for (const u of universities) {
+    if (JSON.stringify(u.data.periods) !== JSON.stringify(first.periods) ||
+        JSON.stringify(u.data.series.map(s => s.code)) !== JSON.stringify(first.series.map(s => s.code))) {
+      throw new Error('University series do not share the same periods and categories.');
+    }
+  }
+  const derived = universities.length > 1 || universities.some(u => u.data.derived);
+  return {...first, derived, filters:{...first.filters, Hochschule:universities.length > 1 ? null : universities[0].code},
+    aggregation:{...first.aggregation, ...(universities.length > 1 ? {Hochschule:{mode:'sum', count:universities.length, values:universities.map(u => u.code)}} : {})}, universities:universities.map(({code,label}) => ({code,label})),
+    series:first.series.map((series, i) => ({...series, points:series.points.map((point, j) => {
+      const segments = universities.map(u => ({university:u.code, label:u.label, ...u.data.series[i].points[j]}));
+      if (universities.length === 1) return {...point, segments};
+      const valid = segments.every(p => Number.isFinite(p.value));
+      const total = valid ? segments.reduce((sum,p) => sum + p.value, 0) : null;
+      return {...point, value:total, raw_value:total === null ? null : String(total), segments,
+        missing_components:segments.reduce((sum,p) => sum + (p.value === null ? p.missing_components || 1 : 0), 0)};
+    })}))};
+}
+function pyramidColor(index, count, side) {
+  return `hsl(${side ? 19 : 226} 65% ${count < 2 ? 52 : 32 + index / (count - 1) * 48}%)`;
+}
+function pyramidSegments(point, percentage) {
+  if (!Number.isFinite(point.value) || point.value < 0) return [];
+  const segments = point.segments || [];
+  if (segments.some(p => !Number.isFinite(p.value) || p.value < 0)) return [];
+  const total = segments.reduce((sum,p) => sum + p.value, 0);
+  return segments.map(p => ({...p, value:percentage ? total ? p.value / total * point.value : 0 : p.value}));
+}
+
 function pyramidLayout(count, containerWidth, containerHeight, narrow) {
   const width = narrow ? 520 : 860, scale = containerWidth / width;
   const height = containerHeight / scale, top = 62 / scale, bottom = 40 / scale;
@@ -61,6 +94,10 @@ function drawPyramid(data) {
       const point = s.points[index], row = el('div', undefined, 'tooltip-row');
       row.append(el('span', labels[i]), el('b', point.value === null ? '—' : number(point.value) + (data.percentage ? '%' : '')));
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); tip.append(row);
+      if (data.stacked) for (const segment of pyramidSegments(point, data.percentage)) {
+        const part = el('div', undefined, 'tooltip-row');
+        part.append(el('span', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); tip.append(part);
+      }
     }
     tip.hidden = false;
     tip.style.left = Math.max(5, Math.min(root.clientWidth - tip.offsetWidth - 5, root.clientWidth / 2 + 12)) + 'px';
@@ -81,11 +118,17 @@ function drawPyramid(data) {
       const point = s.points[j], base = center + (i ? gap : -gap);
       const valid = Number.isFinite(point.value) && point.value >= 0;
       if (valid) {
-        const w = barWidth(point.value);
-        const bar = svgNode('rect', {x:i ? base : base-w,y:y+barInset,width:w,height:barHeight,
-          fill:colors[i],class:'pyramid-bar','data-side':i ? 'right' : 'left','data-value':point.value});
-        bar.append(svgNode('title', {}, labels[i] + ', ' + data.periods[j] + ': ' + number(point.value) + (data.percentage ? '%' : '')));
-        row.append(bar);
+        const segments = data.stacked ? pyramidSegments(point, data.percentage) : [{value:point.value}];
+        let offset = 0;
+        for (const [index, segment] of segments.entries()) {
+          const w = barWidth(segment.value);
+          const bar = svgNode('rect', {x:i ? base+offset : base-offset-w,y:y+barInset,width:w,height:barHeight,
+            fill:data.stacked ? pyramidColor(index, data.universities.length, i) : colors[i],class:'pyramid-bar',
+            'data-side':i ? 'right' : 'left','data-value':segment.value,
+            ...(data.stacked ? {'data-university':segment.university} : {})});
+          bar.append(svgNode('title', {}, (segment.label ? segment.label + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(segment.value) + (data.percentage ? '%' : '')));
+          row.append(bar); offset += w;
+        }
       } else if (showLabel) {
         const marker = svgNode('text', {x:base+(i ? 12 : -12),y:y+rowHeight/2,'text-anchor':'middle','dominant-baseline':'middle'}, '—');
         marker.style.fontSize = fontSize + 'px'; row.append(marker);

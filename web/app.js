@@ -10,7 +10,7 @@ const names = {Hochschule: 'University', Fachrichtung: 'Subject (detailed)', Fac
 const colors = ['#365bd6', '#db7853', '#278d7a', '#8d5cbe', '#b79b29', '#ca5992', '#3b90b7', '#797564'];
 const ALL = '__derived_all__';
 const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0,
-  view: location.hash === '#explorer' ? 'explorer' : 'pyramid', views: {}};
+  universities: [], view: location.hash === '#explorer' ? 'explorer' : 'pyramid', views: {}};
 const date = value => value ? new Date(value).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}) : 'Not supplied';
 const label = code => names[code] || code;
 const number = value => value === null ? '—' : new Intl.NumberFormat(undefined, {maximumFractionDigits: 2}).format(value);
@@ -47,7 +47,10 @@ function renderView() {
     tab.classList.toggle('active-tab', active);
     if (active) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
   }
-  $('compare-field').hidden = pyramid; $('compare-categories').hidden = pyramid; $('pyramid-split').hidden = !pyramid;
+  $('university-heading').hidden = !pyramid;
+  $('category-search').placeholder = pyramid ? 'Find a university…' : 'Find a category…';
+  $('compare-field').hidden = pyramid; $('compare-categories').hidden = false; $('pyramid-split').hidden = !pyramid;
+  $('stack-universities').closest('label').hidden = !pyramid;
   $('normalize').closest('label').hidden = pyramid; $('pyramid-period-note').hidden = !pyramid;
   $('dataset').replaceChildren();
   const available = viewDatasets(); $('dataset-count').textContent = available.length + ' datasets';
@@ -63,7 +66,7 @@ function captureSelection() {
   return {dataset:state.detail.id, snapshot:state.detail.snapshot_id, filters:{...state.filters}, compare:state.compare,
     values:[...state.values], from:timeVariable().values[Number($('from').value)], to:timeVariable().values[Number($('to').value)],
     fromLabel:timeVariable().valueTexts[Number($('from').value)], toLabel:timeVariable().valueTexts[Number($('to').value)],
-    measure:$('measure').value, normalized:$('normalize').checked, percentage:$('percentage').checked};
+    universities:[...state.universities], stacked:$('stack-universities').checked, measure:$('measure').value, normalized:$('normalize').checked, percentage:$('percentage').checked};
 }
 function defaultDataset() {
   const desired = state.view === 'pyramid' ? 'px-x-1502040100_123' : 'px-x-1502040100_105';
@@ -76,6 +79,7 @@ async function switchView() {
   const saved = state.views[view];
   $('normalize').checked = view === 'explorer' && Boolean(saved?.normalized);
   $('percentage').checked = Boolean(saved?.percentage);
+  $('stack-universities').checked = Boolean(saved?.stacked);
   renderView(); await loadDataset(saved?.dataset || defaultDataset(), saved?.snapshot, {restore:saved});
 }
 function renderSplit() {
@@ -106,33 +110,36 @@ function titleFor(dataset) {
   return dataset.group + qualifier + ' — ' + dataset.dimensions.filter(c => c !== 'Hochschule').map(label).join(', ');
 }
 function summary() {
-  return Object.entries(state.filters).map(([code, value]) => {
+  return Object.entries(state.filters).filter(([code]) => state.view !== 'pyramid' || code !== 'Hochschule').map(([code, value]) => {
     return label(code) + ': ' + selectionLabel(code, value);
-  }).join(' · ');
+  }).concat(state.view === 'pyramid' ? ['University: ' + categories(variable('Hochschule')).filter(c => state.universities.includes(c.code)).map(c => c.text).join(', ')] : []).join(' · ');
 }
 function renderCategories() {
   if (!state.detail) return;
-  if (state.view === 'pyramid') {renderSplit(); return;}
+  if (state.view === 'pyramid') renderSplit();
+  const pyramid = state.view === 'pyramid', selected = pyramid ? state.universities : state.values;
   const query = $('category-search').value.trim().toLocaleLowerCase();
   const root = $('categories'); root.replaceChildren();
-  const choices = categories(variable(state.compare)).sort((a, b) => Number(state.values.includes(b.code)) - Number(state.values.includes(a.code)));
+  const choices = categories(variable(pyramid ? 'Hochschule' : state.compare)).sort((a, b) => Number(selected.includes(b.code)) - Number(selected.includes(a.code)));
   for (const c of choices) {
     if (query && !c.text.toLocaleLowerCase().includes(query)) continue;
     const item = el('label', undefined, 'category');
-    const input = el('input'); input.type = 'checkbox'; input.value = c.code; input.checked = state.values.includes(c.code);
+    const input = el('input'); input.type = 'checkbox'; input.value = c.code; input.checked = selected.includes(c.code);
     input.addEventListener('change', () => {
-      if (!input.checked && state.values.length === 1) {input.checked = true; return;}
-      state.values = input.checked ? [...state.values, c.code] : state.values.filter(v => v !== c.code);
-      $('selected-count').textContent = state.values.length + ' selected'; updatePlot();
+      const current = pyramid ? state.universities : state.values;
+      if (!input.checked && current.length === 1) {input.checked = true; return;}
+      const next = input.checked ? [...current, c.code] : current.filter(v => v !== c.code);
+      if (pyramid) setUniversities(next); else state.values = next;
+      $('selected-count').textContent = next.length + ' selected'; updatePlot();
     });
     item.append(input, el('span', c.text)); root.append(item);
   }
   if (!root.children.length) root.append(el('p', 'No matching categories.', 'helper'));
-  $('selected-count').textContent = state.values.length + ' selected';
+  $('selected-count').textContent = selected.length + (pyramid ? ' universities selected' : ' selected');
 }
 function renderFilters() {
   const root = $('filters'); root.replaceChildren();
-  for (const v of state.detail.metadata.variables.filter(v => !v.time && v.code !== state.compare)) {
+  for (const v of state.detail.metadata.variables.filter(v => !v.time && v.code !== state.compare && (state.view !== 'pyramid' || v.code !== 'Hochschule'))) {
     const field = el('label', label(v.code), 'field'); const select = el('select'); select.dataset.dimension = v.code;
     for (const c of categories(v)) option(select, c.code, c.text);
     const aggregation = state.detail.aggregation_options[v.code];
@@ -197,6 +204,14 @@ async function loadDataset(id, snapshotId, options = {}) {
     if (options.restore) {
       state.compare = options.restore.compare; state.values = [...options.restore.values]; state.filters = {...options.restore.filters};
     }
+    if (state.view === 'pyramid') {
+      const savedUniversities = (options.restore || previous?.selection)?.universities;
+      const codes = variable('Hochschule').values;
+      const oldUniversity = previous?.variables.find(v => v.code === 'Hochschule');
+      const chosen = savedUniversities?.map(code => oldUniversity ?
+        categories(variable('Hochschule')).find(c => c.text === oldUniversity.valueTexts[oldUniversity.values.indexOf(code)])?.code : code).filter(code => codes.includes(code));
+      setUniversities(chosen?.length ? chosen : [state.filters.Hochschule || preferred(variable('Hochschule'))]);
+    }
     $('dataset').value = id;
     $('dataset-description').textContent = detail.id + ' · ' + detail.metadata.variables.find(v => v.time).valueTexts.at(-1);
     $('measure').replaceChildren(); for (const m of detail.columns.filter(c => c.type === 'c')) option($('measure'), m.code, m.text || m.code);
@@ -228,7 +243,11 @@ async function updatePlot() {
     compare: state.compare, values: state.values, filters: {...state.filters},
     from: timeVariable().values[Number($('from').value)], to: timeVariable().values[Number($('to').value)]};
   try {
-    const data = await api('/api/series?query=' + encodeURIComponent(JSON.stringify(request)), state.plotController.signal);
+    const signal = state.plotController.signal;
+    const get = query => api('/api/series?query=' + encodeURIComponent(JSON.stringify(query)), signal);
+    const data = state.view === 'pyramid' ? sumPyramidUniversities(await Promise.all(
+      categories(variable('Hochschule')).filter(c => state.universities.includes(c.code)).map(async c =>
+        ({code:c.code, label:c.text, data:await get({...request, filters:{...request.filters, Hochschule:c.code}})})))) : await get(request);
     if (sequence !== state.plotSequence) return;
     state.data = data; renderResults();
   } catch (e) {if (e.name !== 'AbortError' && sequence === state.plotSequence) {
@@ -239,6 +258,10 @@ async function updatePlot() {
 function renderResults() {
   const detail = state.detail;
   const data = $('percentage').checked ? percentageSeries(state.data) : $('normalize').checked ? normalizeSeries(state.data) : state.data;
+  if (state.view === 'pyramid') {
+    data.stacked = $('stack-universities').checked && data.universities.length > 1;
+    $('stack-universities').disabled = data.universities.length < 2;
+  }
   state.plotData = data;
   $('plot-group').textContent = detail.group.toUpperCase();
   const subject = Object.entries(state.filters).find(([code]) => ['Fachrichtung', 'Fachbereich'].includes(code));
@@ -249,6 +272,14 @@ function renderResults() {
     if (state.view === 'pyramid' && !pyramidSides(data).sides.includes(s)) continue;
     const index = state.view === 'pyramid' ? pyramidSides(data).sides.indexOf(s) : i;
     const item = el('span', undefined, 'legend-item'); item.append(el('span', undefined, 'legend-dot c' + index % colors.length), el('span', s.label + (s.normalization_issue ? ' (no baseline)' : ''))); $('legend').append(item);
+  }
+  if (data.stacked) {
+    $('legend').replaceChildren();
+    for (const [index, university] of data.universities.entries()) {
+      const item = el('span', undefined, 'legend-item');
+      for (const side of [0,1]) {const dot = el('span', undefined, 'legend-dot'); dot.style.background = pyramidColor(index, data.universities.length, side); item.append(dot);}
+      item.append(el('span', university.label)); $('legend').append(item);
+    }
   }
   const others = state.view === 'pyramid' ? pyramidSides(data).other : [];
   $('pyramid-note').hidden = !others.some(s => s.points.some(p => p.value === null || p.value !== 0));
@@ -261,7 +292,7 @@ function renderResults() {
   $('percentage-note').hidden = !data.percentage_missing;
   $('percentage-note').textContent = data.percentage_missing ? 'Percentage gaps: ' + data.percentage_missing + ' periods have missing or negative values, or a zero total.' : '';
   $('value-note').textContent = data.percentage ? '100% = the sum of the selected series in each period.' : data.normalized ? data.periods[0] + ' = 100 for each series. Missing values remain gaps.' : 'Missing values are gaps; source zeros remain zero.';
-  $('aggregation-note').textContent = data.derived ? 'Derived sum across selected All dimensions. Missing components leave gaps.' : 'Values from the selected source categories.';
+  $('aggregation-note').textContent = data.derived ? 'Derived sum across selected categories and universities. Missing components leave gaps.' : 'Values from the selected source categories.';
   const valueKind = data.derived ? 'Derived sum' : 'Source value';
   $('table-description').textContent = data.percentage ? 'Share of the selected series total in each period. Hover for the original value.' : data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its ' + valueKind.toLowerCase() + '.' : data.derived ? 'Derived sums of source values.' : 'The values exactly as published.';
   drawChart(data);
@@ -363,7 +394,7 @@ $('dataset').addEventListener('change', () => loadDataset($('dataset').value));
 window.addEventListener('hashchange', switchView);
 $('split-gender').addEventListener('click', () => changeSplit('Geschlecht'));
 $('split-nationality').addEventListener('click', () => changeSplit('Staatsangehörigkeit (Kategorie)'));
-$('snapshot').addEventListener('change', () => loadDataset($('dataset').value, Number($('snapshot').value)));
+$('snapshot').addEventListener('change', () => loadDataset($('dataset').value, Number($('snapshot').value), {preserve:true}));
 $('category-search').addEventListener('input', renderCategories);
 $('compare').addEventListener('change', () => {
   if (!state.detail) return;
@@ -371,7 +402,15 @@ $('compare').addEventListener('change', () => {
   state.values = [state.filters[state.compare] || preferred(variable(state.compare))]; delete state.filters[state.compare];
   $('category-search').value = ''; renderCategories(); renderFilters(); updatePlot();
 });
-$('select-all').addEventListener('click', () => {if (state.detail) {state.values = [...variable(state.compare).values]; renderCategories(); updatePlot();}});
+function setUniversities(codes) {
+  state.universities = [...codes];
+  state.filters.Hochschule = codes.length === variable('Hochschule').values.length ? null : codes[0];
+}
+$('select-all').addEventListener('click', () => {if (state.detail) {
+  if (state.view === 'pyramid') setUniversities(variable('Hochschule').values); else state.values = [...variable(state.compare).values];
+  renderCategories(); updatePlot();
+}});
+$('stack-universities').addEventListener('change', () => {if (state.data) renderResults();});
 $('measure').addEventListener('change', updatePlot);
 let rangeTimer;
 function changeRange(id, immediately = false) {
@@ -403,7 +442,7 @@ $('period-slider').addEventListener('pointerdown', event => {
   move(event); slider.addEventListener('pointermove', move); slider.addEventListener('pointerup', finish); slider.addEventListener('pointercancel', finish);
 });
 for (const id of ['normalize', 'percentage']) $(id).addEventListener('change', () => {syncModes(); if (state.data) renderResults();});
-$('reset').addEventListener('click', () => {$('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = defaultDataset(); if (id) {$('dataset').value = id; loadDataset(id);}});
+$('reset').addEventListener('click', () => {$('stack-universities').checked = false; $('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = defaultDataset(); if (id) {$('dataset').value = id; loadDataset(id);}});
 let resizeTimer;
 window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
   if (state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.plotData || state.data);

@@ -198,10 +198,10 @@ try {
   assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 6);
   assert.equal(await evaluate(`viewDatasets().every(d=>['Bachelor entrants','Degrees'].includes(d.group))`), true);
   assert.equal(await evaluate(`document.querySelector('#dataset option[value="px-x-1502040100_105"]')`), null);
-  assert.equal(await evaluate(`document.getElementById('compare-field').hidden && document.getElementById('compare-categories').hidden`), true);
+  assert.equal(await evaluate(`document.getElementById('compare-field').hidden && !document.getElementById('compare-categories').hidden`), true);
   assert.equal(await evaluate(`document.getElementById('normalize').closest('label').hidden`), true);
   assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['Mann','233'],['Frau','53']]);
-  assert.equal(await evaluate(`document.querySelectorAll('#filters select[data-dimension="Hochschule"]').length`), 1);
+  assert.equal(await evaluate(`document.querySelectorAll('#filters select[data-dimension="Hochschule"]').length`), 0);
   assert.deepEqual(await evaluate(`['left','right'].map(side=>document.querySelector('.pyramid-row:last-of-type .pyramid-bar[data-side="'+side+'"]').getAttribute('data-value'))`), ['233','53']);
   assert.deepEqual(await evaluate(`['.pyramid-row:first-of-type','.pyramid-row:last-of-type'].map(s=>document.querySelector(s).getAttribute('data-period'))`), ['1980/81','2025/26']);
   async function checkPyramidFit() {
@@ -242,8 +242,31 @@ try {
   assert.equal(await evaluate(`state.data.dataset`), 'px-x-1502040100_124');
   assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).raw_value)`), ['134','152']);
   assert.equal(await evaluate(`selectionLabel('Hochschule',state.filters.Hochschule)`), 'EPFL');
+  // A selected subset sums per year; stacked geometry uses exactly those same totals.
+  await evaluate(`{const code=categories(variable('Hochschule')).find(c=>c.text==='ETHZ').code;
+    [...document.querySelectorAll('#categories input')].find(input=>input.value===code).click();}`); await wait(ready);
+  assert.equal(await evaluate(`state.universities.length`), 2);
+  assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).value)`),
+    await evaluate(`state.data.series.map(s=>s.points.at(-1).segments.reduce((sum,p)=>sum+p.value,0))`));
+  const subsetTotals=await evaluate(`state.data.series.map(s=>s.points.at(-1).value)`);
+  await evaluate(`document.getElementById('stack-universities').click()`);
+  assert.equal(await evaluate(`document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar').length`), 4);
+  assert.equal(await evaluate(`document.querySelectorAll('#legend .legend-item').length`), 2);
+  assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
+    return ['left','right'].every((side,i)=>Math.abs(bars.filter(b=>b.dataset.side===side).reduce((sum,b)=>sum+Number(b.dataset.value),0)-pyramidSides(state.plotData).sides[i].points.at(-1).value)<1e-9);})()`), true);
+  await evaluate(`document.getElementById('percentage').click()`);
+  assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
+    return Math.abs(bars.reduce((sum,b)=>sum+Number(b.dataset.value),0)-100)<1e-9;})()`), true);
+  assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).value)`), subsetTotals, 'Display transforms preserve source counts');
+  const stackedScreenshot=await send('Page.captureScreenshot',{format:'png'});
+  await writeFile('/tmp/uni-stats-pyramid-stacked.png',Buffer.from(stackedScreenshot.data,'base64'));
+  await evaluate(`document.getElementById('explorer-tab').click()`); await wait(ready + ` && state.view==='explorer'`);
+  assert.equal(await evaluate(`document.getElementById('stack-universities').closest('label').hidden`),true);
+  await evaluate(`document.getElementById('pyramid-tab').click()`); await wait(ready + ` && state.view==='pyramid'`);
+  assert.equal(await evaluate(`state.universities.length===2 && state.plotData.stacked && state.plotData.percentage`),true,'Pyramid selection and stacking survive switching tabs');
+  await evaluate(`document.getElementById('percentage').click();document.getElementById('stack-universities').click()`);
   // All universities is one derived pyramid, equal to summing each source university.
-  await evaluate(`{const s=document.querySelector('#filters select[data-dimension="Hochschule"]');s.value='__derived_all__';s.dispatchEvent(new Event('change'));}`); await wait(ready);
+  await evaluate(`document.getElementById('select-all').click()`); await wait(ready);
   assert.equal(await evaluate(`state.data.derived && state.data.filters.Hochschule===null`), true);
   assert.equal(await evaluate(`document.querySelectorAll('#chart svg').length`), 1);
   const directSum = await evaluate(`(async()=>{const v=variable('Hochschule');const query={dataset:state.detail.id,snapshot:state.detail.snapshot_id,
@@ -252,6 +275,12 @@ try {
     const result=await api('/api/series?query='+encodeURIComponent(JSON.stringify(query)));
     return result.series.reduce((total,s)=>total+s.points.at(-1).value,0);})()`);
   assert.equal(await evaluate(`state.data.series[0].points.at(-1).value`), directSum);
+  await evaluate(`document.getElementById('stack-universities').click()`);
+  assert.equal(await evaluate(`document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar').length`), await evaluate(`state.universities.length*2`));
+  assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
+    return ['left','right'].every(side=>{const parts=bars.filter(b=>b.dataset.side===side);
+      return parts.every((bar,i)=>!i || Math.abs(side==='right' ? Number(bar.getAttribute('x'))-Number(parts[i-1].getAttribute('x'))-Number(parts[i-1].getAttribute('width')) : Number(bar.getAttribute('x'))+Number(bar.getAttribute('width'))-Number(parts[i-1].getAttribute('x')))<1e-8);});})()`),true,'Segments are contiguous on both mirrored sides');
+  await evaluate(`document.getElementById('stack-universities').click()`);
   await select('from',await evaluate(`timeVariable().values.at(-5)`)); await wait(ready + ` && state.data.periods.length===5`);
   await evaluate(`document.getElementById('split-gender').click()`); await wait(ready + ` && state.compare==='Geschlecht'`);
   assert.equal(await evaluate(`state.filters.Hochschule`), null);

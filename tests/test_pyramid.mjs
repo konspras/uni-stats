@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 
-const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout} = vm.runInNewContext(
-  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout});');
+const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments} = vm.runInNewContext(
+  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments});');
 const dataset = (id, group, dimensions) => ({id, group, dimensions});
 const catalog = [
   dataset('entrants-gender', 'Bachelor entrants', ['Fachrichtung', 'Geschlecht', 'Hochschule']),
@@ -41,3 +41,22 @@ for (const [width,height,narrow] of [[900,884,false],[320,816,true]]) {
   }
 }
 console.log('PASS: flow-only eligibility, correct counterpart selection, explicit side labels, unknown categories, missing-side rejection.');
+
+const uni = (code, values) => ({code,label:code,data:{compare:'Geschlecht',periods:['2024','2025'],filters:{Hochschule:code},
+  series:['Mann','Frau','Geschlecht unbekannt'].map((label,i)=>({code:String(i),label,points:values[i].map(value=>({value,raw_value:value===null?'...':String(value)}))}))}});
+const a=uni('EPFL',[[10,20],[5,10],[1,0]]), b=uni('ETHZ',[[30,40],[15,null],[0,2]]);
+const summed=sumPyramidUniversities([a,b]);
+assert.equal(summed.series[0].points[0].value,40);
+assert.equal(summed.series[1].points[1].value,null,'Missing university component leaves a gap');
+assert.equal(summed.series[1].points[1].missing_components,1);
+assert.equal(summed.series[2].points[1].value,2,'Unknown categories retained separately');
+assert.equal(summed.filters.Hochschule,null);
+assert.equal(summed.derived,true);
+assert.equal(a.data.series[0].points[0].value,10,'Source data is unchanged');
+const segments=pyramidSegments({...summed.series[0].points[0],value:50},true);
+assert.equal(segments[0].value,12.5); assert.equal(segments[1].value,37.5);
+assert.equal(pyramidSegments(summed.series[1].points[1],false).length,0);
+assert.equal(sumPyramidUniversities([a]).series[0].points[0].raw_value,'10');
+assert.throws(()=>sumPyramidUniversities([]),/at least one/);
+assert.throws(()=>sumPyramidUniversities([a,{...b,data:{...b.data,periods:['2023']}}]),/same periods/);
+console.log('PASS: university sums, missing components, unknown categories, percentage segments and immutable sources.');
