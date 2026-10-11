@@ -127,7 +127,6 @@ function renderCategories() {
     const input = el('input'); input.type = 'checkbox'; input.value = c.code; input.checked = selected.includes(c.code);
     input.addEventListener('change', () => {
       const current = pyramid ? state.universities : state.values;
-      if (!input.checked && current.length === 1) {input.checked = true; return;}
       const next = input.checked ? [...current, c.code] : current.filter(v => v !== c.code);
       if (pyramid) setUniversities(next); else state.values = next;
       $('selected-count').textContent = next.length + ' selected'; updatePlot();
@@ -178,7 +177,7 @@ async function loadDataset(id, snapshotId, options = {}) {
   state.datasetController?.abort(); state.datasetController = new AbortController();
   state.detail = null; state.data = null;
   $('categories').replaceChildren(); $('filters').replaceChildren();
-  for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'category-search']) $(control).disabled = true;
+  for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'clear-all', 'category-search']) $(control).disabled = true;
   $('split-gender').disabled = true; $('split-nationality').disabled = true;
   error(''); $('chart').setAttribute('aria-busy', 'true'); $('chart').replaceChildren(el('div', 'Loading dataset…', 'chart-message'));
   $('legend').replaceChildren(); $('values-table').querySelector('tbody').replaceChildren();
@@ -210,7 +209,7 @@ async function loadDataset(id, snapshotId, options = {}) {
       const oldUniversity = previous?.variables.find(v => v.code === 'Hochschule');
       const chosen = savedUniversities?.map(code => oldUniversity ?
         categories(variable('Hochschule')).find(c => c.text === oldUniversity.valueTexts[oldUniversity.values.indexOf(code)])?.code : code).filter(code => codes.includes(code));
-      setUniversities(chosen?.length ? chosen : [state.filters.Hochschule || preferred(variable('Hochschule'))]);
+      setUniversities(savedUniversities?.length === 0 ? [] : chosen?.length ? chosen : [state.filters.Hochschule || preferred(variable('Hochschule'))]);
     }
     $('dataset').value = id;
     $('dataset-description').textContent = detail.id + ' · ' + detail.metadata.variables.find(v => v.time).valueTexts.at(-1);
@@ -229,7 +228,7 @@ async function loadDataset(id, snapshotId, options = {}) {
     }
     $('snapshot').replaceChildren(); for (const [i, s] of detail.snapshots.entries()) option($('snapshot'), s.id, (i === 0 ? 'Latest · ' : '') + date(s.fetched_at) + ' · #' + s.id);
     $('snapshot').value = detail.snapshot_id; $('category-search').value = '';
-    for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'category-search']) $(control).disabled = false;
+    for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'clear-all', 'category-search']) $(control).disabled = false;
     if (time.values.length === 1) {$('from').disabled = true; $('to').disabled = true;}
     renderCategories(); renderFilters(); renderSource(); await updatePlot();
   } catch (e) {if (e.name !== 'AbortError' && generation === state.generation) {error(e.message); $('chart').replaceChildren(el('div', 'This dataset could not be loaded.', 'chart-message'));}}
@@ -239,6 +238,9 @@ async function updatePlot() {
   if (!state.detail) return;
   const sequence = ++state.plotSequence; state.plotController?.abort(); state.plotController = new AbortController();
   $('chart').setAttribute('aria-busy', 'true'); error('');
+  if (!(state.view === 'pyramid' ? state.universities : state.values).length) {
+    renderEmptySelection(); return;
+  }
   const request = {dataset: state.detail.id, snapshot: state.detail.snapshot_id, measure: $('measure').value,
     compare: state.compare, values: state.values, filters: {...state.filters},
     from: timeVariable().values[Number($('from').value)], to: timeVariable().values[Number($('to').value)]};
@@ -254,6 +256,20 @@ async function updatePlot() {
     error(e.message); state.data = null; $('chart').replaceChildren(el('div', 'Adjust your selection to display a series.', 'chart-message'));
     $('legend').replaceChildren(); $('values-table').querySelector('thead').replaceChildren(); $('values-table').querySelector('tbody').replaceChildren();
   }} finally {if (sequence === state.plotSequence) $('chart').setAttribute('aria-busy', 'false');}
+}
+function renderEmptySelection() {
+  state.data = null; state.plotData = null;
+  const chart = $('chart'); chart.classList.toggle('pyramid-chart', state.view === 'pyramid');
+  chart.onkeydown = null; chart.onblur = null; chart.removeAttribute('tabindex'); chart.removeAttribute('aria-label');
+  chart.replaceChildren(el('div', state.view === 'pyramid' ? 'Select a university to display the pyramid.' : 'Select a category to display a series.', 'chart-message'));
+  chart.setAttribute('aria-busy', 'false');
+  $('plot-context').textContent = summary(); $('period-badge').textContent = '';
+  $('legend').replaceChildren(); $('table-count').textContent = '0 selected';
+  for (const tag of ['thead', 'tbody']) $('values-table').querySelector(tag).replaceChildren();
+  $('table-description').textContent = 'No categories selected.';
+  for (const id of ['normalization-note','percentage-note','pyramid-note']) $(id).hidden = true;
+  $('aggregation-note').textContent = 'No categories selected.'; $('value-note').textContent = '';
+  $('stack-universities').disabled = true;
 }
 function renderResults() {
   const detail = state.detail;
@@ -398,16 +414,20 @@ $('snapshot').addEventListener('change', () => loadDataset($('dataset').value, N
 $('category-search').addEventListener('input', renderCategories);
 $('compare').addEventListener('change', () => {
   if (!state.detail) return;
-  state.filters[state.compare] = state.values[0]; state.compare = $('compare').value;
+  state.filters[state.compare] = state.values[0] || preferred(variable(state.compare)); state.compare = $('compare').value;
   state.values = [state.filters[state.compare] || preferred(variable(state.compare))]; delete state.filters[state.compare];
   $('category-search').value = ''; renderCategories(); renderFilters(); updatePlot();
 });
 function setUniversities(codes) {
   state.universities = [...codes];
-  state.filters.Hochschule = codes.length === variable('Hochschule').values.length ? null : codes[0];
+  state.filters.Hochschule = !codes.length || codes.length === variable('Hochschule').values.length ? null : codes[0];
 }
 $('select-all').addEventListener('click', () => {if (state.detail) {
   if (state.view === 'pyramid') setUniversities(variable('Hochschule').values); else state.values = [...variable(state.compare).values];
+  renderCategories(); updatePlot();
+}});
+$('clear-all').addEventListener('click', () => {if (state.detail) {
+  if (state.view === 'pyramid') setUniversities([]); else state.values = [];
   renderCategories(); updatePlot();
 }});
 $('stack-universities').addEventListener('change', () => {if (state.data) renderResults();});

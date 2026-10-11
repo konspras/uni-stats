@@ -44,7 +44,28 @@ try {
   assert.equal(await evaluate(`state.view`), 'pyramid', 'Root URL defaults to Pyramid');
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 884, 'Desktop pyramid is 70% taller');
+  async function clearAndCheck() {
+    const requestCount=await evaluate(`(()=>{window.emptyRequests=0;window.originalApi=api;api=(...args)=>{window.emptyRequests++;return window.originalApi(...args);};document.getElementById('clear-all').click();return window.emptyRequests;})()`);
+    assert.equal(requestCount,0,'Clear all does not request series data');
+    assert.equal(await evaluate(`state.data===null && state.plotData===null && !document.querySelector('#chart svg') && document.querySelectorAll('#values-table tbody tr').length===0 && document.querySelectorAll('#categories input:checked').length===0 && document.getElementById('error').hidden && document.getElementById('chart').getAttribute('aria-busy')==='false'`),true,'Empty selection clears stale chart and values without an error');
+    await evaluate(`api=window.originalApi`);
+  }
+  await clearAndCheck();
   await evaluate(`document.getElementById('explorer-tab').click()`); await wait(ready + ` && state.view==='explorer'`);
+  await clearAndCheck();
+  await evaluate(`document.getElementById('pyramid-tab').click()`);
+  await wait(`state.view==='pyramid' && state.detail && !state.data && document.querySelector('#chart .chart-message')`);
+  assert.equal(await evaluate(`state.universities.length`),0,'Empty Pyramid selection survives tab switches');
+  await evaluate(`document.querySelector('#categories input[value="'+preferred(variable('Hochschule'))+'"]').click()`); await wait(ready);
+  // The last checkbox may also be deselected without being forced back on.
+  await evaluate(`document.querySelector('#categories input:checked').click()`);
+  assert.equal(await evaluate(`state.universities.length===0 && state.data===null`),true);
+  await evaluate(`document.querySelector('#categories input[value="'+preferred(variable('Hochschule'))+'"]').click()`); await wait(ready);
+  await evaluate(`document.getElementById('explorer-tab').click()`);
+  await wait(`state.view==='explorer' && state.detail && !state.data && document.querySelector('#chart .chart-message')`);
+  assert.equal(await evaluate(`state.values.length`),0,'Empty Explorer selection survives tab switches');
+  await evaluate(`for(const c of categories(variable('Hochschule')).filter(c=>['EPFL','ETHZ'].includes(c.text))) document.querySelector('#categories input[value="'+c.code+'"]').click()`); await wait(ready);
+
   assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 28);
   assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['EPFL', '930'], ['ETHZ', '1428']]);
   assert.equal(await evaluate(`document.querySelectorAll('#chart .series-line').length`), 2);
