@@ -140,7 +140,9 @@ function renderFilters() {
   const root = $('filters'); root.replaceChildren();
   for (const v of state.detail.metadata.variables.filter(v => !v.time && v.code !== state.compare && (state.view !== 'pyramid' || v.code !== 'Hochschule'))) {
     const field = el('label', label(v.code), 'field'); const select = el('select'); select.dataset.dimension = v.code;
-    for (const c of categories(v)) option(select, c.code, c.text);
+    const choices = categories(v);
+    if (v.code === 'Fachrichtung') choices.sort((a, b) => a.text.localeCompare(b.text, 'de', {sensitivity:'base'}));
+    for (const c of choices) option(select, c.code, c.text);
     const aggregation = state.detail.aggregation_options[v.code];
     if (aggregation) option(select, ALL, aggregation.mode === 'sum' ? 'All (derived sum)' : 'All (published total)');
     select.value = state.filters[v.code] === null ? ALL : state.filters[v.code];
