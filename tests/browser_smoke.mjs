@@ -33,7 +33,9 @@ async function wait(expression) {
   throw new Error('Timed out: ' + expression);
 }
 const ready = `typeof state !== 'undefined' && state.data && document.querySelector('#chart').getAttribute('aria-busy') === 'false'`;
-async function select(id, value) {await evaluate(`document.getElementById(${JSON.stringify(id)}).value=${JSON.stringify(value)};document.getElementById(${JSON.stringify(id)}).dispatchEvent(new Event('change'))`);}
+async function select(id, value) {await evaluate(`{const node = document.getElementById(${JSON.stringify(id)});
+  node.value = node.type === 'range' ? timeVariable().values.indexOf(${JSON.stringify(value)}) : ${JSON.stringify(value)};
+  node.dispatchEvent(new Event('change'));}`);}
 
 try {
   await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
@@ -43,12 +45,42 @@ try {
   assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['EPFL', '930'], ['ETHZ', '1428']]);
   assert.equal(await evaluate(`document.querySelectorAll('#chart .series-line').length`), 2);
   assert.equal(await evaluate(`document.querySelectorAll('#values-table tbody tr').length`), 46);
+  assert.equal(await evaluate(`document.querySelectorAll('.controls #from, .controls #to, .controls #normalize').length`), 0);
+  assert.equal(await evaluate(`document.querySelector('.plot-panel').nextElementSibling.classList.contains('chart-controls')`), true);
+  assert.equal(await evaluate(`document.querySelector('.chart-controls h2')`), null);
+  assert.equal(await evaluate(`document.querySelector('.chart-controls').getBoundingClientRect().width === document.querySelector('.plot-panel').getBoundingClientRect().width`), true);
+  assert.equal(await evaluate(`document.getElementById('from').type`), 'range');
+  await evaluate(`document.getElementById('percentage').click()`);
+  assert.equal(await evaluate(`document.getElementById('normalize').disabled`), true);
+  await evaluate(`document.getElementById('normalize').click()`);
+  assert.equal(await evaluate(`document.getElementById('normalize').checked`), false);
+  assert.equal(await evaluate(`document.querySelectorAll('#chart .series-area').length`), 2);
+  assert.equal(await evaluate(`document.querySelectorAll('#chart .series-line').length`), 0);
+  assert.equal(await evaluate(`Math.abs(state.plotData.series[0].points.at(-1).value - 930 / (930 + 1428) * 100) < 1e-10`), true);
+  assert.equal(await evaluate(`state.plotData.series.at(-1).points.at(-1).stack_upper`), 100);
+  assert.equal(await evaluate(`document.querySelector('#values-table tbody td:nth-child(2)').textContent.endsWith('%')`), true);
+  await evaluate(`document.getElementById('chart').focus(); document.getElementById('chart').dispatchEvent(new KeyboardEvent('keydown', {key:'End'}))`);
+  assert.equal(await evaluate(`document.querySelector('#chart .tooltip-row b').textContent.endsWith('%')`), true);
+  await evaluate(`{const code=categories(variable(state.compare)).find(c=>c.text==='ETHZ').code;
+    [...document.querySelectorAll('#categories input')].find(input=>input.value===code).click();}`); await wait(ready);
+  assert.equal(await evaluate(`state.plotData.series.length`), 1);
+  assert.equal(await evaluate(`state.plotData.series[0].points.at(-1).value`), 100);
+  await evaluate(`{const code=categories(variable(state.compare)).find(c=>c.text==='ETHZ').code;
+    [...document.querySelectorAll('#categories input')].find(input=>input.value===code).click();}`); await wait(ready);
+  assert.equal(await evaluate(`Math.abs(state.plotData.series.reduce((n,s)=>n+s.points.at(-1).value,0)-100)<1e-10`), true);
+  const shareScreenshot = await send('Page.captureScreenshot', {format:'png'});
+  await writeFile('/tmp/uni-stats-percentage.png', Buffer.from(shareScreenshot.data, 'base64'));
+  await evaluate(`document.getElementById('percentage').click()`);
+  assert.equal(await evaluate(`document.getElementById('normalize').disabled`), false);
+  assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).raw_value)`), ['930', '1428']);
   assert.equal(await evaluate(`document.body.textContent.includes('Explore the source. Understand the differences.')`), false);
   assert.equal(await evaluate(`document.body.textContent.includes('Choose a dataset, select its categories')`), false);
   await evaluate(`document.getElementById('normalize').click()`);
+  assert.equal(await evaluate(`document.getElementById('percentage').disabled`), true);
   assert.equal(await evaluate(`document.getElementById('normalization-note').hidden`), false);
   assert.equal(await evaluate(`state.plotData.series.every(s => s.points.every(p => p.value === null))`), true);
   await select('from', '27'); await wait(ready);
+  assert.equal(await evaluate(`document.getElementById('from-label').textContent`), '2007/08');
   assert.deepEqual(await evaluate(`state.plotData.series.map(s => s.points[0].value)`), [100, 100]);
   assert.equal(await evaluate(`document.getElementById('normalization-note').hidden`), true);
   assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Index (2007/08 = 100)');
@@ -60,10 +92,30 @@ try {
   assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Source value');
   assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).raw_value)`), ['930', '1428']);
   await evaluate(`document.getElementById('reset').click()`); await wait(ready);
+  assert.equal(await evaluate(`document.getElementById('percentage').disabled`), false);
   const desktop = await send('Page.captureScreenshot', {format: 'png'});
   await writeFile('/tmp/uni-stats-desktop.png', Buffer.from(desktop.data, 'base64'));
   await select('from', '41'); await wait(ready);
   assert.equal(await evaluate(`state.data.periods.length`), 5);
+  // Actual keyboard navigation changes the end handle and updates the API range.
+  await evaluate(`document.getElementById('to').focus()`);
+  await send('Input.dispatchKeyEvent', {type:'keyDown', key:'ArrowLeft', code:'ArrowLeft'});
+  await send('Input.dispatchKeyEvent', {type:'keyUp', key:'ArrowLeft', code:'ArrowLeft'});
+  await wait(ready + ` && state.data.periods.length === 4`);
+  // Drag both actual thumbs; crossing collapses the interval to one period.
+  const sliderBox = await evaluate(`{const b=document.getElementById('period-slider').getBoundingClientRect(); ({x:b.left+9,y:b.top+16,w:b.width-18,max:Number(document.getElementById('to').max)})}`);
+  async function dragHandle(fromIndex, toIndex) {
+    const x1 = sliderBox.x + fromIndex / sliderBox.max * sliderBox.w, x2 = sliderBox.x + toIndex / sliderBox.max * sliderBox.w;
+    await send('Input.dispatchMouseEvent', {type:'mouseMoved', x:x1,y:sliderBox.y});
+    await send('Input.dispatchMouseEvent', {type:'mousePressed', x:x1,y:sliderBox.y,button:'left',clickCount:1});
+    await send('Input.dispatchMouseEvent', {type:'mouseMoved', x:x2,y:sliderBox.y,button:'left',buttons:1});
+    await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:x2,y:sliderBox.y,button:'left',clickCount:1});
+  }
+  await dragHandle(41, 40); await wait(ready + ` && state.data.periods.length === 5`);
+  await dragHandle(44, 39); await wait(ready + ` && state.data.periods.length === 1`);
+  // Overlapping thumbs can separate in either direction.
+  await dragHandle(40, 44); await wait(ready + ` && state.data.periods.length === 5`);
+  await select('from', '41'); await select('to', '45'); await wait(ready + ` && state.data.periods.length === 5`);
   await select('compare', 'Studienstufe'); await wait(ready);
   assert.equal(await evaluate(`state.data.series.length`), 1);
   await evaluate(`document.querySelector('#categories input[value="2"]').click()`); await wait(ready);
@@ -97,6 +149,9 @@ try {
     assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['EPFL', '286'], ['ETHZ', '369']]);
     assert.equal(await evaluate(`state.data.derived`), true);
     assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Derived sum');
+    await evaluate(`document.getElementById('percentage').click()`);
+    assert.equal(await evaluate(`Math.abs(state.plotData.series.find(s=>s.label==='EPFL').points.at(-1).value - 286/(286+369)*100)<1e-10`), true);
+    await evaluate(`document.getElementById('percentage').click()`);
     const start = await evaluate(`state.detail.metadata.variables.find(v=>v.time).values.at(-5)`);
     await select('from', start); await wait(ready);
     await evaluate(`document.getElementById('normalize').click()`);
@@ -124,10 +179,13 @@ try {
   await wait(`document.querySelector('#chart svg').getAttribute('viewBox').startsWith('0 0 520 ')`);
   assert.deepEqual(await evaluate(`state.plotData.series.map(s => s.points[0].value)`), [100, 100]);
   assert.equal(await evaluate(`document.querySelector('#chart .axis-title').textContent`), 'Index (2007/08 = 100)');
+  await evaluate(`document.getElementById('normalize').click(); document.getElementById('percentage').click()`);
+  assert.equal(await evaluate(`document.querySelectorAll('#chart .series-area').length`), 2);
+  assert.equal(await evaluate(`document.getElementById('normalize').disabled`), true);
   const metrics = await send('Page.getLayoutMetrics');
   const mobile = await send('Page.captureScreenshot', {format: 'png', captureBeyondViewport: true,
     clip: {x: 0, y: 0, width: 390, height: metrics.cssContentSize.height, scale: 1}});
   await writeFile('/tmp/uni-stats-mobile.png', Buffer.from(mobile.data, 'base64'));
   assert.deepEqual(errors, [], 'Browser console errors');
-  console.log('PASS: default values, normalization, All across 28 datasets, CS Bachelor entrant totals from gender and nationality, normalized sums, comparison changes from All, published totals and nonadditive restrictions, mobile layout, no browser errors.');
+  console.log('PASS: controls layout, slider dragging/keyboard/coincident handles, stacked percentages/table/tooltips, selected-series denominator, mutually exclusive modes, normalization, All across 28 datasets, derived sums, published totals, mobile layout, no browser errors.');
 } finally {socket.close();}

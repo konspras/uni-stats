@@ -73,6 +73,8 @@ One comparison dimension allows multiple selected categories; every other dimens
 
 The explorer now includes optional per-series indexing to the selected start period (start = 100), recalculated when the interval changes. Plot, tooltip and table switch together; stored source values are unchanged. Series with zero/missing baselines are excluded with a notice rather than rebased to a later year. Promotional interface copy has been removed at the user's request.
 
+Chart controls occupy an untitled panel directly below the plot, matching its width. A two-handle slider replaces the sidebar's date dropdowns. The panel contains **Normalize to start = 100** and **Percentage of total**; checking one disables the other until unchecked. Percentages use the sum of the selected series independently in each period and display a 100% stacked area chart, percentage tooltips and a percentage values table. Missing/negative components or zero totals create whole-period gaps. Both modes derive from the selected source/aggregate values without altering SQLite; Reset clears them.
+
 The first version passed Python/HTTP tests and real-browser checks of the default values, filter/comparison changes, all 28 datasets and mobile layout. It is available at `http://localhost:8768`. Continue refining and expanding the interface together as the user learns the data. See [docs/FRONTEND.md](docs/FRONTEND.md).
 
 - Browse source datasets as published, using their original dimensions and labels.

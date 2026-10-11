@@ -22,6 +22,8 @@ Open [the Data explorer](http://localhost:8768). It provides all collected datas
 
 Enable **Normalize to start = 100** to compare growth relative to each series' first selected year. Zero/missing starting values are flagged rather than replaced with a later baseline. The calculation affects the display only.
 
+The untitled controls panel below the plot has a two-handle time slider and **Percentage of total**, which shows a 100% stacked area chart and percentage table using the selected series' total each year. Selecting either display mode disables the other until unchecked. Missing/negative components or zero totals leave gaps.
+
 The `uni-stats.service` user service is enabled and starts with the OS. It serves existing SQLite snapshots without fetching data. See [frontend/service documentation](docs/FRONTEND.md) for API, operation and tests.
 
 ```bash

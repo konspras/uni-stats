@@ -32,8 +32,6 @@
         <div class="filter-heading"><h3>Keep these categories fixed</h3><span>One selection per dimension</span></div>
         <div id="filters"></div>
         <div class="section-divider"></div>
-        <div class="period-fields"><label class="field">From<select id="from"></select></label><label class="field">To<select id="to"></select></label></div>
-        <label class="normalize-toggle"><input id="normalize" type="checkbox">Normalize to start = 100</label>
         <label class="field">Snapshot<select id="snapshot"></select></label>
       </aside>
       <div class="results">
@@ -41,8 +39,23 @@
           <div class="plot-heading"><div><p id="plot-group" class="eyebrow">TIME SERIES</p><h2 id="plot-title">Loading data…</h2><p id="plot-context" class="plot-context"></p></div><span id="period-badge" class="pill"></span></div>
           <div id="legend" class="legend" aria-label="Plotted categories"></div>
           <p id="normalization-note" class="notice" role="status" hidden></p>
+          <p id="percentage-note" class="notice" role="status" hidden></p>
           <div id="chart" class="chart" aria-busy="true"></div>
           <div class="plot-footnote"><span id="aggregation-note">Values from the selected source categories.</span><span id="value-note">Missing values are gaps; source zeros remain zero.</span></div>
+        </section>
+        <section class="panel chart-controls" aria-label="Chart controls">
+          <div class="time-range">
+            <div class="range-labels"><label for="from">From <output id="from-label" for="from">—</output></label><label for="to">To <output id="to-label" for="to">—</output></label></div>
+            <div id="period-slider" class="period-slider">
+              <div class="range-track"><div id="range-fill" class="range-fill"></div></div>
+              <input id="from" type="range" min="0" max="0" step="1" value="0" aria-label="Start period" disabled>
+              <input id="to" type="range" min="0" max="0" step="1" value="0" aria-label="End period" disabled>
+            </div>
+          </div>
+          <div class="chart-toggles">
+            <label class="normalize-toggle"><input id="normalize" type="checkbox">Normalize to start = 100</label>
+            <label class="normalize-toggle"><input id="percentage" type="checkbox">Percentage of total</label>
+          </div>
         </section>
         <section class="panel table-panel" aria-labelledby="table-title">
           <div class="panel-heading"><div><h2 id="table-title">Values</h2><p id="table-description" class="helper">The values exactly as published.</p></div><span id="table-count" class="pill"></span></div>

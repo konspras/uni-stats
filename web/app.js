@@ -19,6 +19,23 @@ function error(message) {$('error').textContent = message; $('error').hidden = !
 async function api(path, signal) {const response = await fetch(path, {signal}); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Could not load data'); return result;}
 function variable(code) {return state.detail.metadata.variables.find(v => v.code === code);}
 function categories(v) {return v.values.map((code, i) => ({code, text: v.valueTexts[i]}));}
+function timeVariable() {return state.detail.metadata.variables.find(v => v.time);}
+function renderRange() {
+  const time = timeVariable(), last = time.values.length - 1;
+  for (const id of ['from', 'to']) {
+    const text = time.valueTexts[Number($(id).value)];
+    $(id + '-label').textContent = text; $(id).setAttribute('aria-valuetext', text);
+  }
+  $('from').setAttribute('aria-valuemax', $('to').value);
+  $('to').setAttribute('aria-valuemin', $('from').value);
+  const start = last ? Number($('from').value) / last * 100 : 0;
+  const end = last ? Number($('to').value) / last * 100 : 100;
+  $('range-fill').style.left = start + '%'; $('range-fill').style.width = end - start + '%';
+}
+function syncModes() {
+  $('normalize').disabled = $('percentage').checked;
+  $('percentage').disabled = $('normalize').checked;
+}
 function selectionLabel(code, value) {
   if (value === null) return state.detail.aggregation_options[code].mode === 'sum' ? 'All (derived sum)' : 'All (published total)';
   const v = variable(code); return v.valueTexts[v.values.indexOf(value)];
@@ -88,6 +105,7 @@ function renderSource() {
     source: detail.source, response_metadata: detail.source_metadata}, null, 2))); definitions.append(raw);
 }
 async function loadDataset(id, snapshotId) {
+  clearTimeout(rangeTimer);
   const generation = ++state.generation; ++state.plotSequence; state.plotController?.abort();
   state.datasetController?.abort(); state.datasetController = new AbortController();
   state.detail = null; state.data = null;
@@ -108,11 +126,12 @@ async function loadDataset(id, snapshotId) {
     $('measure').replaceChildren(); for (const m of detail.columns.filter(c => c.type === 'c')) option($('measure'), m.code, m.text || m.code);
     $('compare').replaceChildren(); for (const v of dims) option($('compare'), v.code, label(v.code)); $('compare').value = state.compare;
     const time = detail.metadata.variables.find(v => v.time);
-    for (const id of ['from', 'to']) {$(id).replaceChildren(); for (const c of categories(time)) option($(id), c.code, c.text);}
-    $('from').value = time.values[0]; $('to').value = time.values.at(-1);
+    for (const id of ['from', 'to']) {$(id).max = time.values.length - 1;}
+    $('from').value = 0; $('to').value = time.values.length - 1; renderRange();
     $('snapshot').replaceChildren(); for (const [i, s] of detail.snapshots.entries()) option($('snapshot'), s.id, (i === 0 ? 'Latest · ' : '') + date(s.fetched_at) + ' · #' + s.id);
     $('snapshot').value = detail.snapshot_id; $('category-search').value = '';
     for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'category-search']) $(control).disabled = false;
+    if (time.values.length === 1) {$('from').disabled = true; $('to').disabled = true;}
     renderCategories(); renderFilters(); renderSource(); await updatePlot();
   } catch (e) {if (e.name !== 'AbortError' && generation === state.generation) {error(e.message); $('chart').replaceChildren(el('div', 'This dataset could not be loaded.', 'chart-message'));}}
   finally {if (generation === state.generation) $('chart').setAttribute('aria-busy', 'false');}
@@ -122,7 +141,8 @@ async function updatePlot() {
   const sequence = ++state.plotSequence; state.plotController?.abort(); state.plotController = new AbortController();
   $('chart').setAttribute('aria-busy', 'true'); error('');
   const request = {dataset: state.detail.id, snapshot: state.detail.snapshot_id, measure: $('measure').value,
-    compare: state.compare, values: state.values, filters: {...state.filters}, from: $('from').value, to: $('to').value};
+    compare: state.compare, values: state.values, filters: {...state.filters},
+    from: timeVariable().values[Number($('from').value)], to: timeVariable().values[Number($('to').value)]};
   try {
     const data = await api('/api/series?query=' + encodeURIComponent(JSON.stringify(request)), state.plotController.signal);
     if (sequence !== state.plotSequence) return;
@@ -134,7 +154,7 @@ async function updatePlot() {
 }
 function renderResults() {
   const detail = state.detail;
-  const data = $('normalize').checked ? normalizeSeries(state.data) : state.data;
+  const data = $('percentage').checked ? percentageSeries(state.data) : $('normalize').checked ? normalizeSeries(state.data) : state.data;
   state.plotData = data;
   $('plot-group').textContent = detail.group.toUpperCase();
   const subject = Object.entries(state.filters).find(([code]) => ['Fachrichtung', 'Fachbereich'].includes(code));
@@ -148,18 +168,20 @@ function renderResults() {
   $('normalization-note').hidden = !unavailable.length;
   $('normalization-note').textContent = unavailable.length ? 'Cannot normalize ' + unavailable.map(s => s.label).join(', ') +
     ': the value in ' + data.periods[0] + ' is zero or missing. Select another start year.' : '';
-  $('value-note').textContent = data.normalized ? data.periods[0] + ' = 100 for each series. Missing values remain gaps.' : 'Missing values are gaps; source zeros remain zero.';
+  $('percentage-note').hidden = !data.percentage_missing;
+  $('percentage-note').textContent = data.percentage_missing ? 'Percentage gaps: ' + data.percentage_missing + ' periods have missing or negative values, or a zero total.' : '';
+  $('value-note').textContent = data.percentage ? '100% = the sum of the selected series in each period.' : data.normalized ? data.periods[0] + ' = 100 for each series. Missing values remain gaps.' : 'Missing values are gaps; source zeros remain zero.';
   $('aggregation-note').textContent = data.derived ? 'Derived sum across selected All dimensions. Missing components leave gaps.' : 'Values from the selected source categories.';
   const valueKind = data.derived ? 'Derived sum' : 'Source value';
-  $('table-description').textContent = data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its ' + valueKind.toLowerCase() + '.' : data.derived ? 'Derived sums of source values.' : 'The values exactly as published.';
+  $('table-description').textContent = data.percentage ? 'Share of the selected series total in each period. Hover for the original value.' : data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its ' + valueKind.toLowerCase() + '.' : data.derived ? 'Derived sums of source values.' : 'The values exactly as published.';
   drawChart(data);
   const table = $('values-table'), head = el('tr'); head.append(el('th', 'Period'));
   for (const s of data.series) {const th = el('th', s.label); th.scope = 'col'; head.append(th);} head.firstChild.scope = 'col';
   table.querySelector('thead').replaceChildren(head); const body = table.querySelector('tbody'); body.replaceChildren();
   for (let j = data.periods.length - 1; j >= 0; j--) {
     const row = el('tr'); row.append(el('td', data.periods[j]));
-    for (const s of data.series) {const point = s.points[j]; const cell = el('td', data.normalized ? number(point.value) : point.raw_value ?? '—', point.value === null ? 'missing' : '');
-      if (data.normalized) cell.title = valueKind + ': ' + (point.raw_value ?? 'unavailable') + (s.normalization_issue ? '; starting value is zero or missing' : '');
+    for (const s of data.series) {const point = s.points[j]; const cell = el('td', data.percentage ? point.value === null ? '—' : number(point.value) + '%' : data.normalized ? number(point.value) : point.raw_value ?? '—', point.value === null ? 'missing' : '');
+      if (data.normalized || data.percentage) cell.title = valueKind + ': ' + (point.raw_value ?? 'unavailable') + (s.normalization_issue ? '; starting value is zero or missing' : '');
       else if (point.value === null) cell.title = data.derived ? 'Incomplete sum: ' + point.missing_components + ' missing components' : point.raw_value === null ? 'No published observation' : 'Source missing-value marker'; row.append(cell);}
     body.append(row);
   }
@@ -170,11 +192,11 @@ function drawChart(data) {
   const root = $('chart'); root.replaceChildren();
   root.onkeydown = null; root.onblur = null; root.removeAttribute('tabindex'); root.removeAttribute('aria-label');
   const numbers = data.series.flatMap(s => s.points.map(p => p.value)).filter(v => v !== null);
-  if (!numbers.length) {root.append(el('div', data.normalized ? 'No series has a nonzero starting value in ' + data.periods[0] + '.' : 'No numeric values in this selection. Source markers are shown in the table below.', 'chart-message')); return;}
+  if (!numbers.length) {root.append(el('div', data.percentage ? 'No periods have a complete, nonnegative selection with a positive total.' : data.normalized ? 'No series has a nonzero starting value in ' + data.periods[0] + '.' : 'No numeric values in this selection. Source markers are shown in the table below.', 'chart-message')); return;}
   const narrow = window.matchMedia('(max-width:720px)').matches;
   const width = narrow ? 520 : 860, height = 360, left = 65, right = 22, top = 25, bottom = 49;
   const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  let min = Math.min(0, ...numbers), max = Math.max(0, ...numbers); if (min === max) max = min + 1;
+  let min = data.percentage ? 0 : Math.min(0, ...numbers), max = data.percentage ? 100 : Math.max(0, ...numbers); if (min === max) max = min + 1;
   const step = Math.pow(10, Math.floor(Math.log10((max - min) / 4)));
   const niceStep = [1, 2, 2.5, 5, 10].map(v => v * step).find(v => v >= (max - min) / 4);
   max = Math.ceil(max / niceStep) * niceStep; min = Math.floor(min / niceStep) * niceStep;
@@ -182,15 +204,37 @@ function drawChart(data) {
   const y = value => top + (max - value) / (max - min) * plotHeight;
   const svg = svgNode('svg', {viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': data.measure + ': ' + data.series.map(s => s.label).join(', ')});
   svg.append(svgNode('title', {}, data.measure));
-  svg.append(svgNode('text', {x: left, y: 11, class: 'axis-title'}, data.normalized ? 'Index (' + data.periods[0] + ' = 100)' : data.derived ? 'Derived sum' : 'Source value'));
+  svg.append(svgNode('text', {x: left, y: 11, class: 'axis-title'}, data.percentage ? 'Share of selected total (%)' : data.normalized ? 'Index (' + data.periods[0] + ' = 100)' : data.derived ? 'Derived sum' : 'Source value'));
   for (let value = min; value <= max + niceStep / 100; value += niceStep) {
     svg.append(svgNode('line', {x1: left, x2: width - right, y1: y(value), y2: y(value), class: 'grid-line'}));
-    svg.append(svgNode('text', {x: left - 12, y: y(value) + 3, 'text-anchor': 'end'}, number(value)));
+    svg.append(svgNode('text', {x: left - 12, y: y(value) + 3, 'text-anchor': 'end'}, number(value) + (data.percentage ? '%' : '')));
   }
   const tickCount = Math.min(narrow ? 4 : 6, data.periods.length);
   const ticks = [...new Set(Array.from({length: tickCount}, (_, i) => Math.round(i * (data.periods.length - 1) / Math.max(1, tickCount - 1))))];
   for (const i of ticks) svg.append(svgNode('text', {x: x(i), y: height - 22, 'text-anchor': 'middle'}, data.periods[i]));
   for (const [i, s] of data.series.entries()) {
+    if (data.percentage) {
+      let path = '', segment = [];
+      function finishArea() {
+        if (!segment.length) return;
+        let topPoints = segment.map(j => [x(j), y(s.points[j].stack_upper)]);
+        let bottomPoints = segment.map(j => [x(j), y(s.points[j].stack_lower)]);
+        if (segment.length === 1) {
+          const j = segment[0], half = data.periods.length === 1 ? plotWidth / 2 : 4;
+          const x1 = Math.max(left, x(j) - half), x2 = Math.min(width - right, x(j) + half);
+          topPoints = [[x1, y(s.points[j].stack_upper)], [x2, y(s.points[j].stack_upper)]];
+          bottomPoints = [[x1, y(s.points[j].stack_lower)], [x2, y(s.points[j].stack_lower)]];
+        }
+        path += 'M' + topPoints.map(p => p.join(',')).join('L') + 'L' + bottomPoints.reverse().map(p => p.join(',')).join('L') + 'Z';
+        segment = [];
+      }
+      for (const [j, point] of s.points.entries()) {
+        if (point.value === null) finishArea(); else segment.push(j);
+      }
+      finishArea();
+      svg.append(svgNode('path', {d: path, fill: colors[i % colors.length], class: 'series-area'}));
+      continue;
+    }
     let path = '', connected = false;
     for (const [j, point] of s.points.entries()) {
       if (point.value === null) {connected = false; continue;}
@@ -212,9 +256,9 @@ function drawChart(data) {
     tooltip.replaceChildren(el('strong', data.periods[inspected]));
     for (const [i, s] of data.series.entries()) {
       const point = s.points[inspected], row = el('div', undefined, 'tooltip-row'), name = el('span');
-      name.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label)); row.append(name, el('b', point.value === null ? data.normalized ? '—' : point.raw_value ?? '—' : number(point.value)));
+      name.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label)); row.append(name, el('b', point.value === null ? data.normalized || data.percentage ? '—' : point.raw_value ?? '—' : number(point.value) + (data.percentage ? '%' : '')));
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); tooltip.append(row);
-      if (point.value !== null) hover.append(svgNode('circle', {cx: x(inspected), cy: y(point.value), r: 4, fill: colors[i % colors.length], class: 'point'}));
+      if (point.value !== null) hover.append(svgNode('circle', {cx: x(inspected), cy: y(data.percentage ? point.stack_upper : point.value), r: 4, fill: colors[i % colors.length], class: 'point'}));
     }
     tooltip.hidden = false; const ratio = root.clientWidth / width;
     tooltip.style.left = Math.max(5, Math.min(root.clientWidth - tooltip.offsetWidth - 5, x(inspected) * ratio + 12)) + 'px'; tooltip.style.top = '22px';
@@ -233,9 +277,38 @@ $('compare').addEventListener('change', () => {
   $('category-search').value = ''; renderCategories(); renderFilters(); updatePlot();
 });
 $('select-all').addEventListener('click', () => {if (state.detail) {state.values = [...variable(state.compare).values]; renderCategories(); updatePlot();}});
-for (const id of ['measure', 'from', 'to']) $(id).addEventListener('change', updatePlot);
-$('normalize').addEventListener('change', () => {if (state.data) renderResults();});
-$('reset').addEventListener('click', () => {$('normalize').checked = false; const id = state.catalog.find(d => d.id === 'px-x-1502040100_105')?.id || state.catalog[0]?.id; if (id) {$('dataset').value = id; loadDataset(id);}});
+$('measure').addEventListener('change', updatePlot);
+let rangeTimer;
+function changeRange(id, immediately = false) {
+  if (!state.detail) return;
+  if (id === 'from') $('from').value = Math.min(Number($('from').value), Number($('to').value));
+  else $('to').value = Math.max(Number($('to').value), Number($('from').value));
+  renderRange(); clearTimeout(rangeTimer);
+  if (immediately) updatePlot(); else rangeTimer = setTimeout(updatePlot, 150);
+}
+for (const id of ['from', 'to']) {
+  $(id).addEventListener('input', () => changeRange(id));
+  $(id).addEventListener('change', () => changeRange(id, true));
+}
+// Track clicks/drags move the closest thumb; native thumbs also support keyboard input.
+$('period-slider').addEventListener('pointerdown', event => {
+  if (!state.detail || $('from').disabled || event.button !== 0) return;
+  event.preventDefault();
+  const slider = $('period-slider'), box = slider.getBoundingClientRect();
+  const index = e => Math.round(Math.max(0, Math.min(1, (e.clientX - box.left - 9) / (box.width - 18))) * Number($('to').max));
+  const initial = Number($('from').value);
+  let overlapping = initial === Number($('to').value);
+  let target = event.target.tagName === 'INPUT' ? event.target.id : Math.abs(index(event) - initial) < Math.abs(index(event) - Number($('to').value)) ? 'from' : 'to';
+  $(target).focus(); slider.setPointerCapture(event.pointerId);
+  const move = e => {
+    if (overlapping && index(e) !== initial) {target = index(e) < initial ? 'from' : 'to'; overlapping = false; $(target).focus();}
+    $(target).value = index(e); changeRange(target);
+  };
+  const finish = e => {move(e); changeRange(target, true); slider.removeEventListener('pointermove', move); slider.removeEventListener('pointerup', finish); slider.removeEventListener('pointercancel', finish);};
+  move(event); slider.addEventListener('pointermove', move); slider.addEventListener('pointerup', finish); slider.addEventListener('pointercancel', finish);
+});
+for (const id of ['normalize', 'percentage']) $(id).addEventListener('change', () => {syncModes(); if (state.data) renderResults();});
+$('reset').addEventListener('click', () => {$('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = state.catalog.find(d => d.id === 'px-x-1502040100_105')?.id || state.catalog[0]?.id; if (id) {$('dataset').value = id; loadDataset(id);}});
 let resizeTimer;
 window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
   if (state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.plotData || state.data);
