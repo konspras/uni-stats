@@ -1,6 +1,6 @@
 # University statistics frontend
 
-The frontend has a **Pyramid** tab to the left of **Data explorer**, served by `server.py` on port **8768**. It reads SQLite directly; there is no collection worker, periodic task or implicit data write. No web framework, build step, charting dependency, external font or CDN is required. The root URL opens Pyramid by default; `/#explorer` opens Data explorer explicitly. Each tab retains its own selection and display mode when switching.
+The frontend has a **Pyramid** tab to the left of **Data explorer**, served by `server.py` on port **8768**. Chart requests read SQLite directly. The installed service also runs a background collection worker every Sunday at 15:00 Europe/Zurich. No web framework, build step, charting dependency, external font or CDN is required. The root URL opens Pyramid by default; `/#explorer` opens Data explorer explicitly. Each tab retains its own selection and display mode when switching.
 
 University labels show the BFS abbreviation plus a full institution name, capped at 40 characters including `...`; hover reveals the complete label. Search matches the abbreviation and full name. This presentation mapping leaves source metadata, dataset-local codes, stored observations and API series labels unchanged. Names are based on the [BFS university list](https://www.swissstats.bfs.admin.ch/data/webviewer/appId/ch.admin.bfs.swissstat/article/issue241517992200-09/package), [BFS finance table footnotes](https://www.pxweb.bfs.admin.ch/pxweb/de/px-x-1506030100_211/-/px-x-1506030100_211.px/) and [BFS historical abbreviations](https://www.bfs.admin.ch/bfsstatic/dam/assets/350858/master). Unknown labels remain unchanged.
 
@@ -76,6 +76,7 @@ To run manually on another port:
 
 ```bash
 python3 server.py --host 127.0.0.1 --port 8769
+# Manual instances do not collect automatically; the installed unit passes --scheduled-updates.
 ```
 
 To install on this machine after a fresh checkout:
@@ -116,3 +117,13 @@ The Pyramid sends an optional `universities` list to `/api/series`. The backend 
 Pyramid breakdown tooltips use two population columns on desktop and one column on narrow screens. Each population has an independently scrollable, keyboard-focusable component list; the year and population totals remain fixed. Tooltip size and placement are capped to the visible viewport and chart bounds. A short pointer-leave delay allows entry into the tooltip, and focusing a list keeps it open. Arrow/Home/End keys in a list scroll it; chart navigation keys still inspect years when the chart itself is focused. Escape dismisses the tooltip. Browser checks cover real wheel scrolling, reaching the last subject, independent scroll positions, fixed totals, pointer transitions, keyboard focus and both layouts.
 
 Subject-stacked Pyramid tooltips omit subjects whose counts are zero on both sides throughout the displayed interval. A subject with a nonzero count in any displayed year stays in both population lists for consistent ordering, even when its value in the inspected year is zero. Changing the interval recalculates this set. The bars, legend, totals and university-stacked tooltips are unchanged. Missing counts are not treated as confirmed zeros.
+
+## Automatic data checks
+
+The installed service passes `--scheduled-updates`, enabling `UpdateWorker` in `update_service.py`. It uses the existing fetcher in a subprocess, separate from HTTP requests. The Sunday 15:00 Europe/Zurich schedule follows daylight saving changes. On first activation it schedules the next future Sunday without fetching immediately. Scheduling state is persisted in SQLite's `update_schedule` table; after downtime one overdue check runs, then scheduling advances to the next future Sunday. A worker lock prevents duplicate automatic workers, and the fetcher's existing lock prevents simultaneous collections.
+
+Failure retries wait 1, 2, 4, 8, 16, then 24 hours, capped at 24 hours. The regular Sunday deadline can take precedence over a later retry. Successful collection or an unchanged-source skip clears the warning. Incompatible source changes remain errors requiring investigation; collection is atomic and previous successful snapshots remain available.
+
+The header displays the last successful check or an amber warning. Open it to inspect worker activity, last attempt/success, latest snapshot, next scheduled check/retry and the error. `/api/update-status` is read-only and the browser refreshes it every minute. Collector output goes to `journalctl --user -u uni-stats.service`. A metadata-only manual dry run remains available as `python3 scripts/fetch_bfs.py --check-only`; it cannot download observations. The background worker uses the normal fetch mode, which skips observations when there are no additions.
+
+Verification: scheduler tests use the real collector with offline source fixtures to exercise unchanged-source skips, new-period downloads, failures, backoff, restart catch-up, worker ownership and DST. Browser tests verify live worker activity, Sunday 15:00 Zurich timing, and header warning/recovery display. The deployed next scheduled check can be independently confirmed with `curl http://localhost:8768/api/update-status`.

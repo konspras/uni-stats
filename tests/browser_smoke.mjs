@@ -466,6 +466,17 @@ try {
     assert.equal(await evaluate(`$('stack-subjects').checked`),false);
   }
 
+  const actualUpdateStatus=await evaluate(`api('/api/update-status')`);
+  assert.equal(actualUpdateStatus.enabled,true,'Installed service enables scheduled checks');
+  assert.equal(actualUpdateStatus.worker_active,true,'Background worker is alive');
+  assert.equal(await evaluate(`(()=>{const t=new Intl.DateTimeFormat('en-GB',{weekday:'long',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Zurich'}).format(new Date(${JSON.stringify(actualUpdateStatus.next_scheduled_check)}));return t.includes('Sunday')&&t.includes('15:00');})()`),true,'Scheduled time is Sunday 15:00 Zurich');
+  await evaluate(`renderUpdateStatus({...${JSON.stringify(actualUpdateStatus)},last_error:'Source unavailable',next_retry:${JSON.stringify(actualUpdateStatus.next_scheduled_check)}});$('update-status').open=true`);
+  assert.equal(await evaluate(`$('update-status-label').textContent`),'Data updates failing');
+  assert.equal(await evaluate(`$('update-status').classList.contains('update-warning') && !$('update-status-error').hidden && $('update-status-error').textContent==='Source unavailable'`),true,'Failure is visible and persistent in header');
+  assert.equal(await evaluate(`$('update-status-details').textContent.includes('Next retry') && $('update-status-details').textContent.includes('Latest snapshot') && document.querySelector('.update-status-panel').textContent.includes('last successfully collected snapshot')`),true,'Details explain retries and retained data');
+  await evaluate(`renderUpdateStatus(${JSON.stringify(actualUpdateStatus)});$('update-status').open=false`);
+  assert.equal(await evaluate(`$('update-status').classList.contains('update-warning')`),false,'Successful recovery removes warning');
+
   assert.deepEqual(errors, [], 'Browser console errors');
   console.log('PASS: explorer regression checks, flow-only Pyramid tab, both splits, source-period mapping, all-university sums, degrees and unknown gender, percentage mode, tab state restoration, direct URLs, keyboard inspection and mobile layout.');
 } finally {socket.close();}

@@ -535,3 +535,27 @@ async function init() {
   } catch (e) {error(e.message); $('chart').replaceChildren(el('div', 'Data is currently unavailable.', 'chart-message')); $('chart').setAttribute('aria-busy', 'false');}
 }
 init();
+
+function renderUpdateStatus(status) {
+  const warning = Boolean(status.last_error || status.enabled && !status.worker_active);
+  const root = $('update-status'); root.classList.toggle('update-warning', warning);
+  $('update-status-label').textContent = warning ? 'Data updates failing' : status.running ? 'Checking for new data…' : !status.enabled ? 'Automatic checks off' : status.last_success ? 'Last checked: ' + new Intl.DateTimeFormat(undefined, {day:'numeric', month:'short',timeZone:'Europe/Zurich'}).format(new Date(status.last_success)) : 'Weekly checks active';
+  const timestamp = value => value ? new Intl.DateTimeFormat(undefined, {dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Zurich'}).format(new Date(value)) + ' (Zurich)' : 'Not yet';
+  const rows = [['Worker',status.worker_active ? 'Active' : 'Inactive'],['Last attempt',timestamp(status.last_check)],
+    ['Last successful check',timestamp(status.last_success)],['Latest snapshot',timestamp(status.latest_snapshot)],
+    ['Next scheduled check',timestamp(status.next_scheduled_check)],['Next retry',status.next_retry ? timestamp(status.next_retry) : 'None'],
+    ['Last result',({skipped:'No new data; download skipped',complete:'Check completed',failed:'Failed',interrupted:'Interrupted',running:'Checking for new data'})[status.last_result] || 'Not yet']];
+  const details = $('update-status-details');details.replaceChildren();
+  for (const [name,value] of rows) details.append(el('dt',name),el('dd',value));
+  const errorNode=$('update-status-error');errorNode.hidden=!warning;
+  errorNode.textContent=status.last_error || (warning ? 'The automatic update worker is not active.' : '');
+}
+async function refreshUpdateStatus() {
+  try {renderUpdateStatus(await api('/api/update-status'));}
+  catch (e) {
+    $('update-status').classList.add('update-warning');$('update-status-label').textContent='Update status unavailable';
+    $('update-status-error').hidden=false;$('update-status-error').textContent='Could not read update status: '+e.message;
+  }
+}
+refreshUpdateStatus();
+setInterval(refreshUpdateStatus,60_000);

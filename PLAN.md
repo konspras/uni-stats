@@ -91,12 +91,12 @@ The first version passed Python/HTTP tests and real-browser checks of the defaul
 
 Completion check: the agreed interface explores CS student counts and Bachelor entrants at EPFL and ETH from SQLite, compares universities, and switches between retained snapshots.
 
-## 5. Run the website and weekly metadata-check service — website running; periodic checks pending
+## 5. Run the website and weekly metadata-check service — implemented and active
 
-At the user's request, the website is already installed as the OS-started `uni-stats.service` user service on port 8768, which was verified unused before installation. The unit is tracked under `deploy/uni-stats.service`; existing user lingering is enabled. It serves SQLite read-only and restarts on failure. There is no periodic worker, timer, fetch on startup or automatic collection in this first frontend service.
+At the user's request, the website is already installed as the OS-started `uni-stats.service` user service on port 8768, which was verified unused before installation. The unit is tracked under `deploy/uni-stats.service`; existing user lingering is enabled. It serves SQLite read-only and restarts on failure. The installed service now enables a background worker for Sunday 15:00 Europe/Zurich checks, with persisted scheduling, retries and header status. First activation schedules the next Sunday; subsequent startups run one overdue check if needed.
 
 - Follow ../day-to-day's systemd deployment and background-worker pattern: start with the OS, restart after failures, and serve continuously.
-- Run weekly metadata checks in the website service's background worker. Download a full snapshot only when the fetcher detects new reporting periods or tables. Configure the exact weekly timing during deployment.
+- Run weekly metadata checks in the website service's background worker. Download a full snapshot only when the fetcher detects new reporting periods or tables. The agreed timing is Sunday at 15:00 Europe/Zurich, following daylight saving changes.
 - Persist scheduling state in SQLite. After downtime, perform one overdue check without fabricating snapshots for missed weeks.
 - Keep the website responsive and the last successful data available during collection or failures.
 - Reuse the manual fetcher's logic, enforce a single active collection, and expose collection status and logs.
@@ -139,4 +139,10 @@ References:
 
 ## Next action
 
-SQLite storage, direct database collection and the first Data explorer are implemented and tested. The website service is running on port 8768. Refine the explorer together with the user; weekly metadata checks remain pending and must not be enabled as part of this initial frontend request.
+SQLite storage, direct database collection and the first Data explorer are implemented and tested. The website service is running on port 8768. Weekly metadata checks are now enabled in the installed service, as subsequently requested by the user.
+
+### Weekly service activation (2026-10-11)
+
+`uni-stats.service` is enabled, active and covered by existing user lingering. Its background worker reports active through `/api/update-status`, with the first scheduled check on 2026-10-18 at 15:00 Europe/Zurich (13:00 UTC). No unscheduled observation download was triggered by activation. Tests exercise the real collector offline for unchanged-source skips and new-data snapshots, as well as persisted catch-up, retry/recovery, single-worker ownership and DST. The website header exposes check status and errors without email notifications.
+
+Activation verification: all 47 Python tests and browser checks passed. A live service restart retained the same Sunday deadline and kept collection counts at 2 runs / 28 snapshots. The status dropdown reports Worker: Active, Next scheduled check: 18 October 2026 at 15:00 Zurich, Next retry: None, and no error. No live source probe was forced; the unchanged-data skip and new-data collection paths were exercised with offline source fixtures.

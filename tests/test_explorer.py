@@ -110,6 +110,11 @@ class ExplorerTests(unittest.TestCase):
             with urlopen(base + '/') as response:
                 self.assertIn(b'Data explorer', response.read())
                 self.assertIn("default-src 'self'", response.headers['Content-Security-Policy'])
+            with urlopen(base + '/api/update-status') as response:
+                status = json.load(response)
+                self.assertFalse(status['enabled'])
+                self.assertEqual(status['timezone'], 'Europe/Zurich')
+                self.assertIsNotNone(status['latest_snapshot'])
             with urlopen(base + '/subject-translations.json') as response:
                 self.assertEqual(json.load(response)['translations']['Informatik'], 'Computer Science')
             with urlopen(base + '/api/series?query=' + quote(json.dumps(self.query))) as response:

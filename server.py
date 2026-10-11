@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve the read-only university data explorer. No periodic collection worker."""
+"""Serve the read-only university data explorer. With optional weekly BFS collection."""
 
 import argparse
 from functools import partial
@@ -10,13 +10,15 @@ import sqlite3
 from urllib.parse import parse_qs, urlsplit
 
 from explorer import Explorer
+from update_service import UpdateWorker, read_status
 
 ROOT = Path(__file__).resolve().parent
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, explorer, **kwargs):
+    def __init__(self, *args, explorer, updater=None, **kwargs):
         self.explorer = explorer
+        self.updater = updater
         super().__init__(*args, directory=str(ROOT / 'web'), **kwargs)
 
     def end_headers(self):
@@ -45,7 +47,9 @@ class Handler(SimpleHTTPRequestHandler):
             return super().do_GET()
         try:
             query = parse_qs(url.query)
-            if url.path == '/api/datasets':
+            if url.path == '/api/update-status':
+                result = self.updater.status() if self.updater else read_status(self.explorer.database)
+            elif url.path == '/api/datasets':
                 result = self.explorer.catalog()
             elif url.path == '/api/dataset':
                 dataset = query.get('id', [''])[0]
@@ -68,8 +72,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({'error': 'Database unavailable; check the service log'}, 503)
 
 
-def create_server(host, port, database):
-    return ThreadingHTTPServer((host, port), partial(Handler, explorer=Explorer(database)))
+def create_server(host, port, database, updater=None):
+    return ThreadingHTTPServer((host, port), partial(Handler, explorer=Explorer(database), updater=updater))
 
 
 def main():
@@ -77,16 +81,22 @@ def main():
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8768)
     parser.add_argument('--database', type=Path, default=ROOT / 'data/university_stats.sqlite3')
+    parser.add_argument('--scheduled-updates', action='store_true', help='Enable Sunday 15:00 Zurich collection')
     args = parser.parse_args()
     if not args.database.is_file():
         parser.error('Database is missing. Run python3 scripts/fetch_bfs.py first.')
-    server = create_server(args.host, args.port, args.database)
+    updater = UpdateWorker(args.database) if args.scheduled_updates else None
+    server = create_server(args.host, args.port, args.database, updater)
     print(f'University data explorer on http://{args.host}:{server.server_port}', flush=True)
     try:
+        if updater:
+            updater.start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if updater:
+            updater.stop()
         server.server_close()
 
 

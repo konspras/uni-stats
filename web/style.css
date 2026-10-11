@@ -27,3 +27,14 @@
 
 
 .chart .pyramid-total{fill:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;pointer-events:none}
+
+.header-status{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.update-status{position:relative;border:0;padding:0;font-size:11px;z-index:5}
+.update-status>summary{font-size:11px;color:#50617c;list-style:none;cursor:pointer}
+.update-status>summary::after{content:' ▾'}
+.update-status.update-warning>summary{color:#9a5900;font-weight:650;background:#fff3d9;border-radius:4px;padding:2px 6px}
+.update-status-panel{position:absolute;right:0;top:calc(100% + 8px);width:340px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;padding:16px;background:white;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 30px #20304b25;color:var(--ink)}
+.update-status-panel p{margin:8px 0;color:var(--muted);font-size:11px}
+.update-status-panel dl{margin:12px 0;display:grid;grid-template-columns:1fr 1.4fr;gap:7px 12px;font-size:11px}
+.update-status-panel dt{color:var(--muted)}.update-status-panel dd{margin:0;overflow-wrap:anywhere}
+.update-status-panel #update-status-error{color:#9a5900;white-space:pre-wrap;overflow-wrap:anywhere}

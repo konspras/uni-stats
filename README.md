@@ -10,7 +10,7 @@ Collect historical Swiss university statistics from the Swiss Federal Statistica
 
 ## Current state
 
-The fetcher checks metadata and stores complete snapshots directly in SQLite only when a new reporting period or university table appears. CSV/file-export output has been removed. The Data explorer frontend is running as a persistent user service; weekly collection has not been enabled.
+The fetcher checks metadata and stores complete snapshots directly in SQLite only when a new reporting period or university table appears. CSV/file-export output has been removed. The website runs as a persistent user service with automatic Sunday 15:00 Europe/Zurich metadata checks. It downloads full snapshots only when new reporting periods or university tables appear.
 
 The first file-based measurement covered 28 tables and 3,519,548 rows. See [the volume report](docs/DATA_VOLUME.md) for measurements and scope.
 
@@ -26,7 +26,7 @@ Enable **Normalize to start = 100** to compare growth relative to each series' f
 
 The untitled controls panel below the plot has a two-handle time slider and **Percentage of total**, which shows a 100% stacked area chart and percentage table using the selected series' total each year. Selecting either display mode disables the other until unchecked. Missing/negative components or zero totals leave gaps.
 
-The `uni-stats.service` user service is enabled and starts with the OS. It serves existing SQLite snapshots without fetching data. See [frontend/service documentation](docs/FRONTEND.md) for API, operation and tests.
+The `uni-stats.service` user service is enabled and starts with the OS. It serves existing SQLite snapshots while a background worker handles scheduled checks and downloads. See [frontend/service documentation](docs/FRONTEND.md) for API, operation and tests.
 
 ```bash
 systemctl --user status uni-stats.service

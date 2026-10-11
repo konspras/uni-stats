@@ -56,3 +56,5 @@ JOIN dataset_tables t ON t.id = s.dataset_table_id;
 Use the returned table name and quoted source column names to filter its rows by `snapshot_id`. Frontend code must resolve category codes from that snapshot's metadata and handle missing markers before converting values to numbers.
 
 Snapshots and the database are local generated data, excluded from Git. The original `EPFL Stats.xlsx` is preserved. CSV output and the `--output` option have been removed; old file snapshots are not used for database baselines.
+
+The automatic website worker adds an auxiliary `update_schedule` singleton table on activation. It stores the next weekly deadline, retry deadline, last attempt/success/result/error, failure count and running flag. This additive extension does not alter BFS source tables or immutable snapshots and remains compatible with schema version 1/manual collection. Read-only API status also derives the latest check and snapshot timestamps from existing collection records. A separate `.schedule.lock` file prevents duplicate worker processes; `.fetch.lock` remains the collection lock.

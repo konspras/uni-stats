@@ -15,7 +15,10 @@
 <body>
   <header class="header">
     <div class="brand"><span class="brand-mark" aria-hidden="true">u.</span><div><strong>UniStats</strong></div></div>
-    <div class="source-badge"><span class="status-dot"></span>BFS / Swiss Federal Statistical Office</div>
+    <div class="header-status"><div class="source-badge"><span class="status-dot"></span>BFS / Swiss Federal Statistical Office</div>
+      <details id="update-status" class="update-status"><summary id="update-status-label" aria-live="polite">Checking update status…</summary>
+        <div class="update-status-panel"><strong>Automatic data updates</strong><p>Every Sunday at 15:00 · Europe/Zurich</p><dl id="update-status-details"></dl><p id="update-status-error" role="status" hidden></p><p>Charts use the last successfully collected snapshot.</p></div>
+      </details></div>
   </header>
   <nav class="tabs" aria-label="Main navigation"><a id="pyramid-tab" class="active-tab" aria-current="page" href="#pyramid">Pyramid</a><a id="explorer-tab" href="#explorer">Data explorer</a></nav>
   <main>

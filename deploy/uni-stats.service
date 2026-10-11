@@ -6,7 +6,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/konstantinos/Code/uni-stats
-ExecStart=/usr/bin/python3 /home/konstantinos/Code/uni-stats/server.py --host 0.0.0.0 --port 8768
+ExecStart=/usr/bin/python3 /home/konstantinos/Code/uni-stats/server.py --host 0.0.0.0 --port 8768 --scheduled-updates
 Restart=on-failure
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
