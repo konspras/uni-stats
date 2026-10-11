@@ -409,7 +409,15 @@ try {
     assert.equal(await evaluate(`$('stack-subjects').disabled`),true,'Requires All subjects');
     await evaluate(`{const node=document.querySelector('#filters select[data-dimension="Fachrichtung"]');node.value=ALL;node.dispatchEvent(new Event('change'));}`); await wait(ready);
     assert.equal(await evaluate(`$('stack-subjects').disabled`),false);
+    if (view==='pyramid') {
+      await evaluate(`window.batchRequests=0;window.batchOriginalApi=api;api=(url,...args)=>{if(url.startsWith('/api/series?')) window.batchRequests++;return window.batchOriginalApi(url,...args);};$('select-all').click()`);
+      await wait(ready);
+      assert.equal(await evaluate(`window.batchRequests`),1,'All universities use one API request');
+      assert.equal(await evaluate(`state.data.universities.length`),await evaluate(`variable('Hochschule').values.length`));
+      await evaluate(`window.batchRequests=0`);
+    }
     await evaluate(`$('stack-subjects').click()`); await wait(ready + ` && state.data.breakdown==='Fachrichtung'`);
+    if(view==='pyramid') {assert.equal(await evaluate(`window.batchRequests`),1,'Subject breakdown also uses one request');await evaluate(`api=window.batchOriginalApi`);}
     assert.equal(await evaluate(`$('stack-universities').disabled && $('normalize').disabled`),true);
     assert.equal(await evaluate(view==='pyramid' ? `document.querySelectorAll('.pyramid-bar[data-subject]').length>0` : `document.querySelectorAll('.series-area').length>0 && state.plotData.subjectStacked`),true,'Subjects are rendered as stacks');
     assert.equal(await evaluate(`state.plotData.series.every(s=>s.points.every((p,j)=>p.value===null || ${view==='pyramid' ? 'Math.abs(p.segments.reduce((n,c)=>n+c.value,0)-p.value)<1e-6' : 'p.stack_upper>=p.stack_lower'}))`),true,'Stack bounds preserve totals');

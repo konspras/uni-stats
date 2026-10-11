@@ -303,9 +303,8 @@ async function updatePlot() {
   try {
     const signal = state.plotController.signal;
     const get = query => api('/api/series?query=' + encodeURIComponent(JSON.stringify(query)), signal);
-    const data = state.view === 'pyramid' ? sumPyramidUniversities(await Promise.all(
-      categories(variable('Hochschule')).filter(c => state.universities.includes(c.code)).map(async c =>
-        ({code:c.code, label:c.text, data:await get({...request, filters:{...request.filters, Hochschule:c.code}})})))) : await get(request);
+    const data = state.view === 'pyramid' ? sumPyramidUniversities(
+      (await get({...request, universities:state.universities})).university_series) : await get(request);
     if (sequence !== state.plotSequence) return;
     state.data = data; renderResults();
   } catch (e) {if (e.name !== 'AbortError' && sequence === state.plotSequence) {

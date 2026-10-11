@@ -167,6 +167,22 @@ class Explorer:
                     raise ValueError('Invalid category for ' + code)
                 else:
                     selections[code] = [value]
+            universities = request.get('universities')
+            if universities is not None:
+                university_dimension = dimensions.get('Hochschule')
+                if (group_for(dataset_id) not in ('Bachelor entrants', 'Degrees')
+                        or comparison not in ('Geschlecht', 'Staatsangehörigkeit (Kategorie)')
+                        or university_dimension is None or 'Hochschule' not in filters
+                        or options.get('Hochschule', {}).get('mode') != 'sum'):
+                    raise ValueError('University batching requires an additive flow pyramid')
+                if (not isinstance(universities, list) or not 1 <= len(universities) <= 100
+                        or any(not isinstance(u, str) for u in universities)
+                        or len(set(universities)) != len(universities)
+                        or not set(universities) <= set(university_dimension['values'])):
+                    raise ValueError('Select between 1 and 100 valid, distinct universities')
+                selections['Hochschule'] = universities
+                # Each returned partition is still one university, not a university sum.
+                aggregation.pop('Hochschule', None)
             breakdown = request.get('breakdown')
             if breakdown is not None and (breakdown not in ('Fachrichtung', 'Fachbereich')
                     or breakdown not in aggregation or aggregation[breakdown]['mode'] != 'sum'):
@@ -191,51 +207,61 @@ class Explorer:
             arguments.extend(values)
             clauses.append(identifier(time['code']) + ' IN (' + ','.join('?' for _ in period_codes) + ')')
             arguments.extend(period_codes)
-            selection = ','.join(identifier(code) for code in (time['code'], comparison, measure, *([breakdown] if breakdown else [])))
+            selection = ','.join(identifier(code) for code in (time['code'], comparison, measure, *([breakdown] if breakdown else []), *(['Hochschule'] if universities is not None else [])))
             rows = connection.execute(f'SELECT {selection} FROM {identifier(snapshot["table_name"])} WHERE '
                                       + ' AND '.join(clauses), arguments)
             derived = any(a['mode'] == 'sum' for a in aggregation.values())
             expected = math.prod(len(v) for v in selections.values())
+            if universities is not None:
+                expected //= len(universities)
             raw, subject_raw = {}, {}
             for row in rows:
-                raw.setdefault((row[0], row[1]), []).append(row[2])
+                university = row[-1] if universities is not None else None
+                raw.setdefault((university, row[0], row[1]), []).append(row[2])
                 if breakdown:
-                    subject_raw.setdefault((row[0], row[1], row[3]), []).append(row[2])
+                    subject_raw.setdefault((university, row[0], row[1], row[3]), []).append(row[2])
             comparison_labels = dict(zip(dimensions[comparison]['values'], dimensions[comparison]['valueTexts']))
-            series = []
-            for value in values:
-                points = []
-                for code, label in zip(period_codes, selected_labels):
-                    components = raw.get((code, value), [])
-                    missing = expected - len(components) + sum(numeric_value(v) is None for v in components)
-                    source_value = components[0] if components else None
-                    if derived:
-                        source_value = None
-                        if not missing:
-                            # Keep decimal source precision during addition (e.g. 0.1 + 0.2).
-                            with localcontext() as context:
-                                context.prec = 400
-                                source_value = format(sum((Decimal(v) for v in components), Decimal(0)), 'f')
-                    point = {'period_code': code, 'period': label, 'raw_value': source_value,
-                             'value': numeric_value(source_value)}
-                    if derived:
-                        point['missing_components'] = missing
-                    if breakdown:
-                        segments = []
-                        count = expected // len(selections[breakdown])
-                        for subject, subject_label in zip(dimensions[breakdown]['values'], dimensions[breakdown]['valueTexts']):
-                            parts = subject_raw.get((code, value, subject), [])
-                            absent = count - len(parts) + sum(numeric_value(v) is None for v in parts)
-                            total = None
-                            if not absent:
+            def partition(university):
+                series = []
+                for value in values:
+                    points = []
+                    for code, label in zip(period_codes, selected_labels):
+                        components = raw.get((university, code, value), [])
+                        missing = expected - len(components) + sum(numeric_value(v) is None for v in components)
+                        source_value = components[0] if components else None
+                        if derived:
+                            source_value = None
+                            if not missing:
+                                # Keep decimal source precision during addition (e.g. 0.1 + 0.2).
                                 with localcontext() as context:
                                     context.prec = 400
-                                    total = format(sum((Decimal(v) for v in parts), Decimal(0)), 'f')
-                            segments.append({'code': subject, 'label': subject_label, 'value': numeric_value(total),
-                                             'raw_value': total, 'missing_components': absent})
-                        point['subject_segments'] = segments
-                    points.append(point)
-                series.append({'code': value, 'label': comparison_labels[value], 'points': points})
-            return {'dataset': dataset_id, 'snapshot_id': snapshot['id'], 'measure': measure,
-                    'compare': comparison, 'filters': filters, 'periods': selected_labels, 'series': series,
-                    'derived': derived, 'aggregation': aggregation, 'breakdown': breakdown}
+                                    source_value = format(sum((Decimal(v) for v in components), Decimal(0)), 'f')
+                        point = {'period_code': code, 'period': label, 'raw_value': source_value,
+                                 'value': numeric_value(source_value)}
+                        if derived:
+                            point['missing_components'] = missing
+                        if breakdown:
+                            segments = []
+                            count = expected // len(selections[breakdown])
+                            for subject, subject_label in zip(dimensions[breakdown]['values'], dimensions[breakdown]['valueTexts']):
+                                parts = subject_raw.get((university, code, value, subject), [])
+                                absent = count - len(parts) + sum(numeric_value(v) is None for v in parts)
+                                total = None
+                                if not absent:
+                                    with localcontext() as context:
+                                        context.prec = 400
+                                        total = format(sum((Decimal(v) for v in parts), Decimal(0)), 'f')
+                                segments.append({'code': subject, 'label': subject_label, 'value': numeric_value(total),
+                                                 'raw_value': total, 'missing_components': absent})
+                            point['subject_segments'] = segments
+                        points.append(point)
+                    series.append({'code': value, 'label': comparison_labels[value], 'points': points})
+                return {'dataset': dataset_id, 'snapshot_id': snapshot['id'], 'measure': measure,
+                        'compare': comparison, 'filters': {**filters, 'Hochschule': university} if universities is not None else filters, 'periods': selected_labels, 'series': series,
+                        'derived': derived, 'aggregation': aggregation, 'breakdown': breakdown}
+
+            if universities is None:
+                return partition(None)
+            university_labels = dict(zip(university_dimension['values'], university_dimension['valueTexts']))
+            return {'university_series': [
+                {'code': u, 'label': university_labels[u], 'data': partition(u)} for u in universities]}

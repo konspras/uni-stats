@@ -56,6 +56,55 @@ class AggregationTests(unittest.TestCase):
                       'filters': {'Geschlecht': None, 'Studienstufe': 'b'}}
         self.table = self.store.connection.execute('SELECT table_name FROM dataset_tables').fetchone()[0]
 
+    def test_batched_universities_match_individual_queries_with_one_sql_read(self):
+        self.load(subjects=True)
+        self.store.connection.execute(f"UPDATE {identifier(self.table)} SET Students='..' WHERE Fachrichtung='cs' AND Hochschule='02' AND Year='a'")
+        self.store.connection.execute(f"DELETE FROM {identifier(self.table)} WHERE Fachrichtung='psy' AND Hochschule='02' AND Year='b' AND Geschlecht='2'")
+        for subjects, breakdown, level in [('cs', None, 'b'), (None, None, None), (None, 'Fachrichtung', 'b')]:
+            query = {'dataset': self.dataset, 'compare': 'Geschlecht', 'values': ['1', '2'],
+                     'filters': {'Fachrichtung': subjects, 'Studienstufe': level, 'Hochschule': None},
+                     'universities': ['02', '01'], 'from': 'a', 'to': 'b', 'breakdown': breakdown}
+            statements = []
+            original = self.explorer.connection
+            @contextlib.contextmanager
+            def traced():
+                with original() as connection:
+                    connection.set_trace_callback(statements.append)
+                    yield connection
+            self.explorer.connection = traced
+            try:
+                batch = self.explorer.series(query)['university_series']
+            finally:
+                self.explorer.connection = original
+            reads = [sql for sql in statements if f'FROM "{self.table}"' in sql]
+            self.assertEqual(len(reads), 1, 'Batch reads observations once')
+            self.assertEqual([u['code'] for u in batch], ['02', '01'])
+            for university in batch:
+                individual = {k:v for k,v in query.items() if k != 'universities'}
+                individual['filters'] = {**query['filters'], 'Hochschule': university['code']}
+                self.assertEqual(university['data'], self.explorer.series(individual))
+        # A single university keeps exact source values and is not a university sum.
+        query = dict(query, universities=['01'], breakdown=None,
+                     filters={'Fachrichtung':'cs', 'Studienstufe':'b', 'Hochschule':'02'})
+        data = self.explorer.series(query)['university_series'][0]['data']
+        self.assertFalse(data['derived'])
+        self.assertEqual(data['series'][0]['points'][0]['raw_value'], '0.1')
+        self.assertEqual(data['filters']['Hochschule'], '01')
+
+    def test_batch_rejects_invalid_universities_and_non_pyramid_queries(self):
+        self.load(subjects=True)
+        query = {'dataset': self.dataset, 'compare': 'Geschlecht', 'values': ['1'],
+                 'filters': {'Fachrichtung': None, 'Studienstufe':'b', 'Hochschule': None}}
+        for universities in ([], ['01', '01'], ['missing'], [1], '01', {}, ['01'] * 101):
+            with self.subTest(universities=universities), self.assertRaises(ValueError):
+                self.explorer.series(dict(query, universities=universities))
+        with self.assertRaises(ValueError):
+            self.explorer.series(dict(self.query, filters={**self.query['filters'], 'Fachrichtung':None}, universities=['01']))
+        self.load('px-x-1502040100_105')
+        with self.assertRaises(ValueError):
+            self.explorer.series({'dataset':self.dataset, 'compare':'Geschlecht', 'values':['1'],
+                'filters':{'Studienstufe':'b', 'Hochschule':'01'}, 'universities':['01']})
+
     def test_subject_breakdown_preserves_totals_and_missing_components(self):
         self.load(subjects=True)
         query = dict(self.query, filters={**self.query['filters'], 'Fachrichtung': None}, breakdown='Fachrichtung')
