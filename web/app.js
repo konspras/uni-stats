@@ -315,7 +315,7 @@ async function updatePlot() {
 function renderEmptySelection() {
   state.data = null; state.plotData = null;
   const chart = $('chart'); chart.classList.toggle('pyramid-chart', state.view === 'pyramid');
-  chart.onkeydown = null; chart.onblur = null; chart.removeAttribute('tabindex'); chart.removeAttribute('aria-label');
+  chart.onkeydown = null; chart.onblur = null; chart.onpointerleave = null; chart.onfocusout = null; chart.removeAttribute('tabindex'); chart.removeAttribute('aria-label');
   chart.replaceChildren(el('div', state.view === 'pyramid' ? 'Select a university to display the pyramid.' : 'Select a category to display a series.', 'chart-message'));
   chart.setAttribute('aria-busy', 'false');
   $('plot-context').textContent = summary(); $('period-badge').textContent = '';
@@ -387,7 +387,7 @@ function drawChart(data) {
   $('chart').classList.toggle('pyramid-chart', state.view === 'pyramid');
   if (state.view === 'pyramid') {drawPyramid(data); return;}
   const root = $('chart'); root.replaceChildren();
-  root.onkeydown = null; root.onblur = null; root.removeAttribute('tabindex'); root.removeAttribute('aria-label');
+  root.onkeydown = null; root.onblur = null; root.onpointerleave = null; root.onfocusout = null; root.removeAttribute('tabindex'); root.removeAttribute('aria-label');
   const numbers = data.series.flatMap(s => s.points.map(p => data.subjectStacked ? p.stack_upper : p.value)).filter(v => v !== null);
   if (!numbers.length) {root.append(el('div', data.percentage ? 'No periods have a complete, nonnegative selection with a positive total.' : data.normalized ? 'No series has a nonzero starting value in ' + data.periods[0] + '.' : 'No numeric values in this selection. Source markers are shown in the table below.', 'chart-message')); return;}
   const narrow = window.matchMedia('(max-width:720px)').matches;

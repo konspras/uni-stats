@@ -119,26 +119,47 @@ function drawPyramid(data) {
       svg.append(svgNode('text', {x,y:42/scale,'text-anchor':'middle'}, number(value) + (data.percentage ? '%' : '')));
     }
   }
-  const tip = el('div', undefined, 'tooltip'); tip.hidden = true;
+  const tip = el('div', undefined, 'tooltip pyramid-tooltip'); tip.hidden = true;
+  tip.setAttribute('role', 'region'); tip.setAttribute('aria-label', 'Year breakdown');
+  let hideTimer, dismissed = false;
+  const cancelHide = () => {clearTimeout(hideTimer);};
+  const hide = () => {cancelHide(); tip.hidden = true;};
+  const scheduleHide = () => {cancelHide(); hideTimer = setTimeout(hide, 180);};
+  tip.addEventListener('pointerenter', cancelHide);
+  tip.addEventListener('pointerleave', scheduleHide);
   function inspect(index) {
+    cancelHide();
     tip.replaceChildren(el('strong', data.periods[index]));
+    const populations = el('div', undefined, 'pyramid-tooltip-populations');
+    tip.append(populations);
     for (const [i, s] of sides.entries()) {
       const population = el('section', undefined, 'pyramid-tooltip-population');
       population.setAttribute('aria-label', labels[i]);
       const point = s.points[index], row = el('div', undefined, 'tooltip-row pyramid-tooltip-total');
       row.append(el('span', labels[i] + ' total'), el('b', point.value === null ? '—' : number(point.value) + (data.percentage ? '%' : '')));
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); population.append(row);
+      const components = el('div', undefined, 'pyramid-tooltip-components');
+      if (data.stacked) {
+        components.tabIndex = 0;
+        components.setAttribute('role', 'region');
+        components.setAttribute('aria-label', labels[i] + ' breakdown');
+      }
       if (data.stacked) for (const segment of pyramidSegments(point, data.percentage)) {
         const part = el('div', undefined, 'tooltip-row pyramid-tooltip-component');
         if (segment.subject) part.dataset.subject = segment.subject; else part.dataset.university = segment.university;
-        part.append(categoryNode('span', data.stackDimension || 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); population.append(part);
+        part.append(categoryNode('span', data.stackDimension || 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); components.append(part);
       }
-      tip.append(population);
+      population.append(components); populations.append(population);
     }
     tip.hidden = false;
+    const bounds = root.getBoundingClientRect();
+    const topLimit = Math.max(5, 8 - bounds.top);
+    const bottomLimit = Math.min(root.clientHeight - 5, window.innerHeight - 8 - bounds.top);
+    tip.style.maxHeight = Math.max(0, Math.min(560, bottomLimit - topLimit)) + 'px';
+    tip.style.width = Math.max(0, Math.min(data.stacked ? 640 : 440, root.clientWidth - 10)) + 'px';
     tip.style.left = Math.max(5, Math.min(root.clientWidth - tip.offsetWidth - 5, root.clientWidth / 2 + 12)) + 'px';
     const rowY = (top + (index + 0.5) * rowHeight) * scale;
-    tip.style.top = Math.max(5, Math.min(root.clientHeight - tip.offsetHeight - 5, rowY - tip.offsetHeight)) + 'px';
+    tip.style.top = Math.max(topLimit, Math.min(bottomLimit - tip.offsetHeight, rowY - tip.offsetHeight)) + 'px';
   }
   let inspected = data.periods.length - 1;
   for (let j = 0; j < data.periods.length; j++) {
@@ -175,16 +196,22 @@ function drawPyramid(data) {
       total.append(svgNode('title', {}, labels[i] + ', ' + data.periods[j] + ': ' + (count === null ? 'Count unavailable' : number(count))));
       row.append(total);
     }
-    row.addEventListener('pointerenter', () => {inspected = j; inspect(j);});
+    row.addEventListener('pointerenter', () => {if (!dismissed) {inspected = j; inspect(j);}});
+    row.addEventListener('pointermove', () => {if (dismissed) {dismissed = false; inspected = j; inspect(j);}});
     svg.append(row);
   }
   svg.append(svgNode('text', {x:center,y:height-12/scale,'text-anchor':'middle',class:'axis-title'}, data.percentage ? 'Share of each year’s total (%)' : data.derived ? 'Derived count' : 'Count'));
   root.append(svg, tip); root.tabIndex = 0;
   root.setAttribute('aria-label', 'Pyramid. Oldest year at top, newest at bottom. Use arrow keys to inspect years.');
-  const hide = () => {tip.hidden = true;}; svg.addEventListener('pointerleave', hide); root.onblur = hide;
+  svg.addEventListener('pointerleave', scheduleHide);
+  root.onpointerleave = hide;
+  root.onfocusout = event => {if (!root.contains(event.relatedTarget)) hide();};
   root.onkeydown = event => {
+    if (event.key === 'Escape') {dismissed = true; hide(); if (event.target !== root) root.focus({preventScroll:true}); return;}
+    // Arrow keys inside a breakdown scroll its list rather than selecting another year.
+    if (event.target !== root) return;
     if (!['ArrowUp','ArrowDown','Home','End'].includes(event.key)) return;
-    event.preventDefault();
+    event.preventDefault(); dismissed = false;
     inspected = event.key === 'Home' ? 0 : event.key === 'End' ? data.periods.length-1 : Math.max(0,Math.min(data.periods.length-1,inspected+(event.key==='ArrowDown' ? 1 : -1)));
     inspect(inspected);
   };

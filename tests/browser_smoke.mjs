@@ -298,7 +298,7 @@ try {
   assert.deepEqual(await evaluate(`state.data.universities.map(u=>u.label)`),['ETHZ','EPFL'],'Latest-year combined population determines one university ranking');
   assert.equal(await evaluate(`(()=>{const order=state.data.universities.map(u=>u.code).join(',');return [...document.querySelectorAll('.pyramid-row')].every(row=>['left','right'].every(side=>[...row.querySelectorAll('.pyramid-bar[data-side="'+side+'"]')].map(b=>b.dataset.university).join(',')===order));})()`),true,'Every year and both sides use the same ranking');
   await evaluate(`document.getElementById('chart').focus();document.getElementById('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'Home'}))`);
-  assert.equal(await evaluate(`(()=>{const groups=[...document.querySelectorAll('#chart .pyramid-tooltip-population')];const order=state.data.universities.map(u=>u.code).join(',');return groups.length===2 && groups.every(group=>group.firstChild.classList.contains('pyramid-tooltip-total') && group.firstChild.textContent.includes('total') && [...group.querySelectorAll('.pyramid-tooltip-component')].map(row=>row.dataset.university).join(',')===order) && parseFloat(getComputedStyle(groups[1]).borderTopWidth)>0;})()`),true,'Tooltip populations have totals, consistent ranked breakdowns and a divider');
+  assert.equal(await evaluate(`(()=>{const groups=[...document.querySelectorAll('#chart .pyramid-tooltip-population')];const order=state.data.universities.map(u=>u.code).join(',');return groups.length===2 && groups.every(group=>group.firstChild.classList.contains('pyramid-tooltip-total') && group.firstChild.textContent.includes('total') && [...group.querySelectorAll('.pyramid-tooltip-component')].map(row=>row.dataset.university).join(',')===order) && parseFloat(getComputedStyle(groups[1]).borderLeftWidth)>0;})()`),true,'Tooltip populations have totals, consistent ranked breakdowns and a divider');
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar[data-side="left"]')];const dots=[...document.querySelectorAll('#legend .legend-item')].map(item=>item.firstChild);return bars.every((bar,i)=>bar.getAttribute('fill')===dots[i].style.background || getComputedStyle(bar).fill===getComputedStyle(dots[i]).backgroundColor);})()`),true,'Legend colors match ranked segments');
 
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
@@ -421,6 +421,39 @@ try {
     assert.equal(await evaluate(`$('stack-universities').disabled && $('normalize').disabled`),true);
     assert.equal(await evaluate(view==='pyramid' ? `document.querySelectorAll('.pyramid-bar[data-subject]').length>0` : `document.querySelectorAll('.series-area').length>0 && state.plotData.subjectStacked`),true,'Subjects are rendered as stacks');
     assert.equal(await evaluate(`state.plotData.series.every(s=>s.points.every((p,j)=>p.value===null || ${view==='pyramid' ? 'Math.abs(p.segments.reduce((n,c)=>n+c.value,0)-p.value)<1e-6' : 'p.stack_upper>=p.stack_lower'}))`),true,'Stack bounds preserve totals');
+    if(view==='pyramid') {
+      for(const width of [1360,390]) {
+        await send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<720});
+        await new Promise(r=>setTimeout(r,300));
+        await evaluate(`document.getElementById('chart').scrollIntoView({block:'start'});drawChart(state.plotData);$('chart').focus();$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
+        const geometry=await evaluate(`(()=>{const tip=document.querySelector('.pyramid-tooltip'),root=$('chart'),groups=[...tip.querySelectorAll('.pyramid-tooltip-population')],lists=[...tip.querySelectorAll('.pyramid-tooltip-components')];const r=tip.getBoundingClientRect(),a=groups[0].getBoundingClientRect(),b=groups[1].getBoundingClientRect();return {within:r.top>=0&&r.bottom<=innerHeight&&r.left>=root.getBoundingClientRect().left&&r.right<=root.getBoundingClientRect().right,columns:Math.abs(a.top-b.top)<1,scrollable:lists.every(l=>l.scrollHeight>l.clientHeight&&l.clientHeight>0),period:tip.querySelector('strong').textContent};})()`);
+        assert.equal(geometry.within,true,'Tooltip fits chart and viewport');
+        assert.equal(geometry.columns,width>720,'Desktop columns become mobile rows');
+        assert.equal(geometry.scrollable,true,'Both full subject lists have independent scrolling');
+        const barPoint=await evaluate(`(()=>{const r=document.querySelector('.pyramid-row:last-of-type .pyramid-row-hit').getBoundingClientRect();return {x:r.left+10,y:r.top+r.height/2};})()`);
+        await send('Input.dispatchMouseEvent',{type:'mouseMoved',...barPoint});
+        const listPoint=await evaluate(`(()=>{const r=document.querySelector('.pyramid-tooltip-components').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+        await send('Input.dispatchMouseEvent',{type:'mouseMoved',...listPoint});
+        await new Promise(r=>setTimeout(r,250));
+        assert.equal(await evaluate(`document.querySelector('.pyramid-tooltip').hidden`),false,'Pointer can enter tooltip without dismissal');
+        const fixedBefore=await evaluate(`[document.querySelector('.pyramid-tooltip>strong'),...document.querySelectorAll('.pyramid-tooltip-total')].map(n=>n.getBoundingClientRect().top)`);
+        await send('Input.dispatchMouseEvent',{type:'mouseWheel',...listPoint,deltaX:0,deltaY:1500});
+        await wait(`document.querySelector('.pyramid-tooltip-components').scrollTop>0`);
+        assert.deepEqual(await evaluate(`[document.querySelector('.pyramid-tooltip>strong'),...document.querySelectorAll('.pyramid-tooltip-total')].map(n=>n.getBoundingClientRect().top)`),fixedBefore,'Year and both totals stay fixed while scrolling');
+        assert.equal(await evaluate(`document.querySelectorAll('.pyramid-tooltip-components')[1].scrollTop`),0,'The other population scrolls independently');
+        await evaluate(`document.querySelector('.pyramid-tooltip-components').focus()`);
+        assert.equal(await evaluate(`document.querySelector('.pyramid-tooltip').hidden`),false,'Moving keyboard focus into list keeps tooltip open');
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'End',code:'End',windowsVirtualKeyCode:35,nativeVirtualKeyCode:35});
+        await send('Input.dispatchKeyEvent',{type:'keyUp',key:'End',code:'End',windowsVirtualKeyCode:35,nativeVirtualKeyCode:35});
+        await wait(`(()=>{const l=document.querySelector('.pyramid-tooltip-components');return l.scrollTop+l.clientHeight>=l.scrollHeight-2;})()`);
+        assert.equal(await evaluate(`document.querySelector('.pyramid-tooltip>strong').textContent`),geometry.period,'List navigation does not change the inspected year');
+        assert.equal(await evaluate(`(()=>{const list=document.querySelector('.pyramid-tooltip-components'),last=list.lastElementChild;return last.getBoundingClientRect().bottom<=list.getBoundingClientRect().bottom+1;})()`),true,'Last subject is reachable');
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
+        await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});
+        assert.equal(await evaluate(`document.querySelector('.pyramid-tooltip').hidden`),true,'Escape dismisses tooltip');
+      }
+      await send('Emulation.setDeviceMetricsOverride',{width:1360,height:1100,deviceScaleFactor:1,mobile:false});
+    }
     await evaluate(`$('percentage').click()`); await wait(ready);
     assert.equal(await evaluate(`state.plotData.percentage`),true,'Subject stacks support percentages');
     await evaluate(`$('stack-subjects').click()`); await wait(ready + ` && !state.data.breakdown`);
