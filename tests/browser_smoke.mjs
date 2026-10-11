@@ -426,6 +426,12 @@ try {
         await send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<720});
         await new Promise(r=>setTimeout(r,300));
         await evaluate(`document.getElementById('chart').scrollIntoView({block:'start'});drawChart(state.plotData);$('chart').focus();$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
+        const expectedSubjects=await evaluate(`state.plotData.stackCategories.filter(c=>pyramidTooltipSubjects(state.plotData).has(c.code)).map(c=>c.code)`);
+        assert.equal(await evaluate(`pyramidTooltipSubjects(state.plotData).size<state.plotData.stackCategories.length`),true,'Source selection contains zero-only subjects to exclude');
+        assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-tooltip-population')].map(group=>[...group.querySelectorAll('[data-subject]')].map(row=>row.dataset.subject))`),[expectedSubjects,expectedSubjects],'Both lists omit zero-only subjects');
+        await evaluate(`$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'Home'}))`);
+        assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-tooltip-population')].map(group=>[...group.querySelectorAll('[data-subject]')].map(row=>row.dataset.subject))`),[expectedSubjects,expectedSubjects],'Subject list remains consistent across years');
+        await evaluate(`$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
         const geometry=await evaluate(`(()=>{const tip=document.querySelector('.pyramid-tooltip'),root=$('chart'),groups=[...tip.querySelectorAll('.pyramid-tooltip-population')],lists=[...tip.querySelectorAll('.pyramid-tooltip-components')];const r=tip.getBoundingClientRect(),a=groups[0].getBoundingClientRect(),b=groups[1].getBoundingClientRect();return {within:r.top>=0&&r.bottom<=innerHeight&&r.left>=root.getBoundingClientRect().left&&r.right<=root.getBoundingClientRect().right,columns:Math.abs(a.top-b.top)<1,scrollable:lists.every(l=>l.scrollHeight>l.clientHeight&&l.clientHeight>0),period:tip.querySelector('strong').textContent};})()`);
         assert.equal(geometry.within,true,'Tooltip fits chart and viewport');
         assert.equal(geometry.columns,width>720,'Desktop columns become mobile rows');

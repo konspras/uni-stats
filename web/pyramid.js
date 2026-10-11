@@ -69,6 +69,21 @@ function pyramidSegments(point, percentage) {
   return segments.map(p => ({...p, value:percentage ? total ? p.value / total * point.value : 0 : p.value}));
 }
 
+// Use one interval-wide subject set for both populations and every inspected year.
+function pyramidTooltipSubjects(data) {
+  if (!data.stacked || !['Fachrichtung', 'Fachbereich'].includes(data.stackDimension)) return null;
+  const subjects = new Set();
+  for (const series of pyramidSides(data).sides) {
+    for (const point of series.points) {
+      for (const segment of point.segments || []) {
+        // Missing counts do not prove that a subject was zero throughout.
+        if (segment.value !== 0) subjects.add(segment.subject);
+      }
+    }
+  }
+  return subjects;
+}
+
 function pyramidCount(point, percentage) {
   const value = percentage ? point.raw_value === null || point.raw_value === undefined || point.raw_value === '' ? null : Number(point.raw_value) : point.value;
   return Number.isFinite(value) && value >= 0 ? value : null;
@@ -119,6 +134,7 @@ function drawPyramid(data) {
       svg.append(svgNode('text', {x,y:42/scale,'text-anchor':'middle'}, number(value) + (data.percentage ? '%' : '')));
     }
   }
+  const tooltipSubjects = pyramidTooltipSubjects(data);
   const tip = el('div', undefined, 'tooltip pyramid-tooltip'); tip.hidden = true;
   tip.setAttribute('role', 'region'); tip.setAttribute('aria-label', 'Year breakdown');
   let hideTimer, dismissed = false;
@@ -145,6 +161,7 @@ function drawPyramid(data) {
         components.setAttribute('aria-label', labels[i] + ' breakdown');
       }
       if (data.stacked) for (const segment of pyramidSegments(point, data.percentage)) {
+        if (tooltipSubjects && !tooltipSubjects.has(segment.subject)) continue;
         const part = el('div', undefined, 'tooltip-row pyramid-tooltip-component');
         if (segment.subject) part.dataset.subject = segment.subject; else part.dataset.university = segment.university;
         part.append(categoryNode('span', data.stackDimension || 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); components.append(part);
