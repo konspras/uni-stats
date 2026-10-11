@@ -18,6 +18,20 @@ function pyramidSides(data) {
     labels: data.compare === 'Geschlecht' ? ['Men', 'Women'] : ['Swiss nationals', 'Foreign nationals']};
 }
 
+// Rank once from raw counts in the latest displayed year, shared by both sides.
+function rankPyramidUniversities(universities) {
+  return universities.map((university, colorIndex) => {
+    const values = pyramidSides(university.data).sides.map(s => s.points.at(-1)?.value);
+    const total = values.every(v => Number.isFinite(v) && v >= 0) ? values.reduce((sum, v) => sum + v, 0) : null;
+    return {...university, colorIndex, rankingTotal:total};
+  }).sort((a, b) => {
+    if (a.rankingTotal === null && b.rankingTotal !== null) return 1;
+    if (b.rankingTotal === null && a.rankingTotal !== null) return -1;
+    return (b.rankingTotal ?? 0) - (a.rankingTotal ?? 0) ||
+      a.label.localeCompare(b.label, 'en', {sensitivity:'base'}) || a.code.localeCompare(b.code);
+  });
+}
+
 // Keep university components alongside totals so display modes share one denominator.
 function sumPyramidUniversities(universities) {
   if (!universities.length) throw new Error('Select at least one university.');
@@ -28,11 +42,12 @@ function sumPyramidUniversities(universities) {
       throw new Error('University series do not share the same periods and categories.');
     }
   }
+  universities = rankPyramidUniversities(universities);
   const derived = universities.length > 1 || universities.some(u => u.data.derived);
   return {...first, derived, filters:{...first.filters, Hochschule:universities.length > 1 ? null : universities[0].code},
-    aggregation:{...first.aggregation, ...(universities.length > 1 ? {Hochschule:{mode:'sum', count:universities.length, values:universities.map(u => u.code)}} : {})}, universities:universities.map(({code,label}) => ({code,label})),
+    aggregation:{...first.aggregation, ...(universities.length > 1 ? {Hochschule:{mode:'sum', count:universities.length, values:universities.map(u => u.code)}} : {})}, universities:universities.map(({code,label,colorIndex,rankingTotal}) => ({code,label,colorIndex,rankingTotal})),
     series:first.series.map((series, i) => ({...series, points:series.points.map((point, j) => {
-      const segments = universities.map(u => ({university:u.code, label:u.label, ...u.data.series[i].points[j]}));
+      const segments = universities.map(u => ({university:u.code, label:u.label, colorIndex:u.colorIndex, ...u.data.series[i].points[j]}));
       if (universities.length === 1) return {...point, segments};
       const valid = segments.every(p => Number.isFinite(p.value));
       const total = valid ? segments.reduce((sum,p) => sum + p.value, 0) : null;
@@ -91,13 +106,17 @@ function drawPyramid(data) {
   function inspect(index) {
     tip.replaceChildren(el('strong', data.periods[index]));
     for (const [i, s] of sides.entries()) {
-      const point = s.points[index], row = el('div', undefined, 'tooltip-row');
-      row.append(el('span', labels[i]), el('b', point.value === null ? '—' : number(point.value) + (data.percentage ? '%' : '')));
-      row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); tip.append(row);
+      const population = el('section', undefined, 'pyramid-tooltip-population');
+      population.setAttribute('aria-label', labels[i]);
+      const point = s.points[index], row = el('div', undefined, 'tooltip-row pyramid-tooltip-total');
+      row.append(el('span', labels[i] + ' total'), el('b', point.value === null ? '—' : number(point.value) + (data.percentage ? '%' : '')));
+      row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); population.append(row);
       if (data.stacked) for (const segment of pyramidSegments(point, data.percentage)) {
-        const part = el('div', undefined, 'tooltip-row');
-        part.append(categoryNode('span', 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); tip.append(part);
+        const part = el('div', undefined, 'tooltip-row pyramid-tooltip-component');
+        part.dataset.university = segment.university;
+        part.append(categoryNode('span', 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); population.append(part);
       }
+      tip.append(population);
     }
     tip.hidden = false;
     tip.style.left = Math.max(5, Math.min(root.clientWidth - tip.offsetWidth - 5, root.clientWidth / 2 + 12)) + 'px';
@@ -123,7 +142,7 @@ function drawPyramid(data) {
         for (const [index, segment] of segments.entries()) {
           const w = barWidth(segment.value);
           const bar = svgNode('rect', {x:i ? base+offset : base-offset-w,y:y+barInset,width:w,height:barHeight,
-            fill:data.stacked ? pyramidColor(index, data.universities.length, i) : colors[i],class:'pyramid-bar',
+            fill:data.stacked ? pyramidColor(segment.colorIndex ?? index, data.universities.length, i) : colors[i],class:'pyramid-bar',
             'data-side':i ? 'right' : 'left','data-value':segment.value,
             ...(data.stacked ? {'data-university':segment.university} : {})});
           bar.append(svgNode('title', {}, (segment.label ? categoryFullLabel('Hochschule', segment.label) + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(segment.value) + (data.percentage ? '%' : '')));

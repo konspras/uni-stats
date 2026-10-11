@@ -336,7 +336,7 @@ function renderResults() {
     $('legend').replaceChildren();
     for (const [index, university] of data.universities.entries()) {
       const item = el('span', undefined, 'legend-item');
-      for (const side of [0,1]) {const dot = el('span', undefined, 'legend-dot'); dot.style.background = pyramidColor(index, data.universities.length, side); item.append(dot);}
+      for (const side of [0,1]) {const dot = el('span', undefined, 'legend-dot'); dot.style.background = pyramidColor(university.colorIndex ?? index, data.universities.length, side); item.append(dot);}
       item.append(categoryNode('span', 'Hochschule', university.label)); $('legend').append(item);
     }
   }

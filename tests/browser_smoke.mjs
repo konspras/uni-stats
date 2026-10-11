@@ -286,6 +286,12 @@ try {
   await evaluate(`document.getElementById('stack-universities').click()`);
   assert.equal(await evaluate(`document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar').length`), 4);
   assert.equal(await evaluate(`document.querySelectorAll('#legend .legend-item').length`), 2);
+  assert.deepEqual(await evaluate(`state.data.universities.map(u=>u.label)`),['ETHZ','EPFL'],'Latest-year combined population determines one university ranking');
+  assert.equal(await evaluate(`(()=>{const order=state.data.universities.map(u=>u.code).join(',');return [...document.querySelectorAll('.pyramid-row')].every(row=>['left','right'].every(side=>[...row.querySelectorAll('.pyramid-bar[data-side="'+side+'"]')].map(b=>b.dataset.university).join(',')===order));})()`),true,'Every year and both sides use the same ranking');
+  await evaluate(`document.getElementById('chart').focus();document.getElementById('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'Home'}))`);
+  assert.equal(await evaluate(`(()=>{const groups=[...document.querySelectorAll('#chart .pyramid-tooltip-population')];const order=state.data.universities.map(u=>u.code).join(',');return groups.length===2 && groups.every(group=>group.firstChild.classList.contains('pyramid-tooltip-total') && group.firstChild.textContent.includes('total') && [...group.querySelectorAll('.pyramid-tooltip-component')].map(row=>row.dataset.university).join(',')===order) && parseFloat(getComputedStyle(groups[1]).borderTopWidth)>0;})()`),true,'Tooltip populations have totals, consistent ranked breakdowns and a divider');
+  assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar[data-side="left"]')];const dots=[...document.querySelectorAll('#legend .legend-item')].map(item=>item.firstChild);return bars.every((bar,i)=>bar.getAttribute('fill')===dots[i].style.background || getComputedStyle(bar).fill===getComputedStyle(dots[i]).backgroundColor);})()`),true,'Legend colors match ranked segments');
+
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
     return ['left','right'].every((side,i)=>Math.abs(bars.filter(b=>b.dataset.side===side).reduce((sum,b)=>sum+Number(b.dataset.value),0)-pyramidSides(state.plotData).sides[i].points.at(-1).value)<1e-9);})()`), true);
   await evaluate(`document.getElementById('percentage').click()`);
