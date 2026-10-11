@@ -34,7 +34,7 @@ class AggregationTests(unittest.TestCase):
         self.store.close()
         self.temp.cleanup()
 
-    def load(self, dataset='px-x-1502040100_123', total=False, unknown=False):
+    def load(self, dataset='px-x-1502040100_123', total=False, unknown=False, subjects=False):
         self.dataset = dataset
         variables = [
             {'code': 'Year', 'values': ['a', 'b'], 'valueTexts': ['2024', '2025'], 'time': True},
@@ -42,6 +42,8 @@ class AggregationTests(unittest.TestCase):
             {'code': 'Studienstufe', 'values': ['b', 'm'], 'valueTexts': ['Bachelor', 'Master']},
             {'code': 'Hochschule', 'values': ['01', '02'], 'valueTexts': ['ETHZ', 'EPFL']},
         ]
+        if subjects:
+            variables.insert(1, {'code': 'Fachrichtung', 'values': ['cs', 'psy'], 'valueTexts': ['Informatik', 'Psychologie']})
         if unknown:
             variables[1]['values'].append('99')
             variables[1]['valueTexts'].append('Unknown')
@@ -53,6 +55,24 @@ class AggregationTests(unittest.TestCase):
         self.query = {'dataset': dataset, 'compare': 'Hochschule', 'values': ['01', '02'],
                       'filters': {'Geschlecht': None, 'Studienstufe': 'b'}}
         self.table = self.store.connection.execute('SELECT table_name FROM dataset_tables').fetchone()[0]
+
+    def test_subject_breakdown_preserves_totals_and_missing_components(self):
+        self.load(subjects=True)
+        query = dict(self.query, filters={**self.query['filters'], 'Fachrichtung': None}, breakdown='Fachrichtung')
+        data = self.explorer.series(query)
+        point = data['series'][0]['points'][0]
+        self.assertEqual(point['raw_value'], '0.6')
+        self.assertEqual([p['raw_value'] for p in point['subject_segments']], ['0.3', '0.3'])
+        plain = self.explorer.series({k:v for k,v in query.items() if k != 'breakdown'})
+        self.assertEqual(point['value'], plain['series'][0]['points'][0]['value'])
+        self.store.connection.execute(f"UPDATE {identifier(self.table)} SET Students='..' WHERE Fachrichtung='cs' AND Geschlecht='1' AND Hochschule='01'")
+        point = self.explorer.series(query)['series'][0]['points'][0]
+        self.assertIsNone(point['value'])
+        self.assertIsNone(point['subject_segments'][0]['value'])
+        self.assertEqual(point['subject_segments'][1]['raw_value'], '0.3')
+        for change in ({'breakdown':'Geschlecht'}, {'filters':{**query['filters'], 'Fachrichtung':'cs'}}):
+            with self.assertRaises(ValueError):
+                self.explorer.series(dict(query, **change))
 
     def test_gender_total_decimal_precision_and_multiple_dimensions(self):
         self.load()

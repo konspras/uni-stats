@@ -403,6 +403,22 @@ try {
   assert.equal(await evaluate(`document.querySelector('#values-table thead th:nth-child(2)').textContent`),'Informatik (Computer Science)');
   assert.equal(await evaluate(`state.data.series[0].label`),'Informatik','Original BFS labels stay intact');
 
+  for (const view of ['pyramid','explorer']) {
+    await send('Page.navigate',{url:base+'/#'+view}); await wait(ready + ` && state.view==='${view}'`);
+    if (view==='explorer') {await evaluate(`$('reset').click()`);await wait(ready + ` && state.compare==='Hochschule'`);}
+    assert.equal(await evaluate(`$('stack-subjects').disabled`),true,'Requires All subjects');
+    await evaluate(`{const node=document.querySelector('#filters select[data-dimension="Fachrichtung"]');node.value=ALL;node.dispatchEvent(new Event('change'));}`); await wait(ready);
+    assert.equal(await evaluate(`$('stack-subjects').disabled`),false);
+    await evaluate(`$('stack-subjects').click()`); await wait(ready + ` && state.data.breakdown==='Fachrichtung'`);
+    assert.equal(await evaluate(`$('stack-universities').disabled && $('normalize').disabled`),true);
+    assert.equal(await evaluate(view==='pyramid' ? `document.querySelectorAll('.pyramid-bar[data-subject]').length>0` : `document.querySelectorAll('.series-area').length>0 && state.plotData.subjectStacked`),true,'Subjects are rendered as stacks');
+    assert.equal(await evaluate(`state.plotData.series.every(s=>s.points.every((p,j)=>p.value===null || ${view==='pyramid' ? 'Math.abs(p.segments.reduce((n,c)=>n+c.value,0)-p.value)<1e-6' : 'p.stack_upper>=p.stack_lower'}))`),true,'Stack bounds preserve totals');
+    await evaluate(`$('percentage').click()`); await wait(ready);
+    assert.equal(await evaluate(`state.plotData.percentage`),true,'Subject stacks support percentages');
+    await evaluate(`$('stack-subjects').click()`); await wait(ready + ` && !state.data.breakdown`);
+    assert.equal(await evaluate(`$('stack-subjects').checked`),false);
+  }
+
   assert.deepEqual(errors, [], 'Browser console errors');
   console.log('PASS: explorer regression checks, flow-only Pyramid tab, both splits, source-period mapping, all-university sums, degrees and unknown gender, percentage mode, tab state restoration, direct URLs, keyboard inspection and mobile layout.');
 } finally {socket.close();}

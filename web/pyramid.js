@@ -53,7 +53,7 @@ function sumPyramidUniversities(universities) {
       if (universities.length === 1) return {...point, segments};
       const valid = segments.every(p => Number.isFinite(p.value));
       const total = valid ? segments.reduce((sum,p) => sum + p.value, 0) : null;
-      return {...point, value:total, raw_value:total === null ? null : String(total), segments,
+      return {...point, ...(point.subject_segments ? {subject_segments:sumSubjectParts(segments)} : {}), value:total, raw_value:total === null ? null : String(total), segments,
         missing_components:segments.reduce((sum,p) => sum + (p.value === null ? p.missing_components || 1 : 0), 0)};
     })}))};
 }
@@ -130,8 +130,8 @@ function drawPyramid(data) {
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); population.append(row);
       if (data.stacked) for (const segment of pyramidSegments(point, data.percentage)) {
         const part = el('div', undefined, 'tooltip-row pyramid-tooltip-component');
-        part.dataset.university = segment.university;
-        part.append(categoryNode('span', 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); population.append(part);
+        if (segment.subject) part.dataset.subject = segment.subject; else part.dataset.university = segment.university;
+        part.append(categoryNode('span', data.stackDimension || 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); population.append(part);
       }
       tip.append(population);
     }
@@ -159,10 +159,10 @@ function drawPyramid(data) {
         for (const [index, segment] of segments.entries()) {
           const w = barWidth(segment.value);
           const bar = svgNode('rect', {x:i ? base+offset : base-offset-w,y:y+barInset,width:w,height:barHeight,
-            fill:data.stacked ? pyramidColor(segment.colorIndex ?? index, segment.colorCount ?? data.universities.length, i) : colors[i],class:'pyramid-bar',
+            fill:data.stacked ? pyramidColor(segment.colorIndex ?? index, segment.colorCount ?? (data.stackCategories || data.universities).length, i) : colors[i],class:'pyramid-bar',
             'data-side':i ? 'right' : 'left','data-value':segment.value,
-            ...(data.stacked ? {'data-university':segment.university} : {})});
-          bar.append(svgNode('title', {}, (segment.label ? categoryFullLabel('Hochschule', segment.label) + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(segment.value) + (data.percentage ? '%' : '')));
+            ...(data.stacked ? {[segment.subject ? 'data-subject' : 'data-university']:segment.subject || segment.university} : {})});
+          bar.append(svgNode('title', {}, (segment.label ? categoryFullLabel(data.stackDimension || 'Hochschule', segment.label) + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(segment.value) + (data.percentage ? '%' : '')));
           row.append(bar); offset += w;
         }
       }

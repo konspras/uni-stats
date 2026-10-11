@@ -67,8 +67,19 @@ function renderRange() {
   const end = last ? Number($('to').value) / last * 100 : 100;
   $('range-fill').style.left = start + '%'; $('range-fill').style.width = end - start + '%';
 }
+function subjectDimension() {
+  return ['Fachrichtung','Fachbereich'].find(code => state.detail?.aggregation_options[code]?.mode === 'sum' && state.filters[code] === null);
+}
+function syncSubjectMode() {
+  const available = Boolean(subjectDimension());
+  if (!available) $('stack-subjects').checked = false;
+  $('stack-subjects').disabled = !available || $('stack-universities').checked || $('normalize').checked;
+  $('stack-subjects').closest('label').title = available ? 'Sum selected categories and universities, grouped by subject.' : 'Select All subjects in an additive dataset.';
+  $('stack-universities').disabled = $('stack-subjects').checked || state.universities.length < 2;
+  syncModes();
+}
 function syncModes() {
-  $('normalize').disabled = state.view === 'pyramid' || $('percentage').checked;
+  $('normalize').disabled = state.view === 'pyramid' || $('percentage').checked || $('stack-subjects').checked;
   $('percentage').disabled = $('normalize').checked;
 }
 function viewDatasets() {return state.catalog.filter(d => state.view !== 'pyramid' || isPyramidDataset(d));}
@@ -100,7 +111,7 @@ function captureSelection() {
   return {dataset:state.detail.id, snapshot:state.detail.snapshot_id, filters:{...state.filters}, compare:state.compare,
     values:[...state.values], from:timeVariable().values[Number($('from').value)], to:timeVariable().values[Number($('to').value)],
     fromLabel:timeVariable().valueTexts[Number($('from').value)], toLabel:timeVariable().valueTexts[Number($('to').value)],
-    universities:[...state.universities], stacked:$('stack-universities').checked, measure:$('measure').value, normalized:$('normalize').checked, percentage:$('percentage').checked};
+    universities:[...state.universities], stacked:$('stack-universities').checked, subjectStacked:$('stack-subjects').checked, measure:$('measure').value, normalized:$('normalize').checked, percentage:$('percentage').checked};
 }
 function defaultDataset() {
   const desired = state.view === 'pyramid' ? 'px-x-1502040100_123' : 'px-x-1502040100_105';
@@ -113,7 +124,7 @@ async function switchView() {
   const saved = state.views[view];
   $('normalize').checked = view === 'explorer' && Boolean(saved?.normalized);
   $('percentage').checked = Boolean(saved?.percentage);
-  $('stack-universities').checked = Boolean(saved?.stacked);
+  $('stack-universities').checked = Boolean(saved?.stacked); $('stack-subjects').checked = Boolean(saved?.subjectStacked);
   renderView(); await loadDataset(saved?.dataset || defaultDataset(), saved?.snapshot, {restore:saved});
 }
 function renderSplit() {
@@ -279,6 +290,7 @@ async function loadDataset(id, snapshotId, options = {}) {
 }
 async function updatePlot() {
   if (!state.detail) return;
+  syncSubjectMode();
   const sequence = ++state.plotSequence; state.plotController?.abort(); state.plotController = new AbortController();
   $('chart').setAttribute('aria-busy', 'true'); error('');
   if (!(state.view === 'pyramid' ? state.universities : state.values).length) {
@@ -286,6 +298,7 @@ async function updatePlot() {
   }
   const request = {dataset: state.detail.id, snapshot: state.detail.snapshot_id, measure: $('measure').value,
     compare: state.compare, values: state.values, filters: {...state.filters},
+    ...($('stack-subjects').checked ? {breakdown:subjectDimension()} : {}),
     from: timeVariable().values[Number($('from').value)], to: timeVariable().values[Number($('to').value)]};
   try {
     const signal = state.plotController.signal;
@@ -315,11 +328,14 @@ function renderEmptySelection() {
   $('stack-universities').disabled = true;
 }
 function renderResults() {
+  if ($('stack-subjects').checked && state.data.breakdown !== subjectDimension()) return;
   const detail = state.detail;
-  const data = $('percentage').checked ? percentageSeries(state.data) : $('normalize').checked ? normalizeSeries(state.data) : state.data;
+  const base = $('stack-subjects').checked ? stackSubjects(state.data, state.view === 'pyramid') : state.data;
+  let data = $('percentage').checked ? percentageSeries(base) : $('normalize').checked ? normalizeSeries(base) : base;
+  if (data.subjectStacked && !data.percentage) data = subjectStackBounds(data);
   if (state.view === 'pyramid') {
-    data.stacked = $('stack-universities').checked && data.universities.length > 1;
-    $('stack-universities').disabled = data.universities.length < 2;
+    data.stacked = $('stack-subjects').checked || $('stack-universities').checked && data.universities.length > 1;
+    syncSubjectMode();
   }
   state.plotData = data;
   $('plot-group').textContent = detail.group.toUpperCase();
@@ -334,10 +350,10 @@ function renderResults() {
   }
   if (data.stacked) {
     $('legend').replaceChildren();
-    for (const [index, university] of data.universities.entries()) {
+    for (const [index, university] of (data.stackCategories || data.universities).entries()) {
       const item = el('span', undefined, 'legend-item');
       for (const side of [0,1]) {const dot = el('span', undefined, 'legend-dot'); dot.style.background = pyramidColor(university.colorIndex ?? index, university.colorCount ?? data.universities.length, side); item.append(dot);}
-      item.append(categoryNode('span', 'Hochschule', university.label)); $('legend').append(item);
+      item.append(categoryNode('span', data.stackDimension || 'Hochschule', university.label)); $('legend').append(item);
     }
   }
   const others = state.view === 'pyramid' ? pyramidSides(data).other : [];
@@ -373,7 +389,7 @@ function drawChart(data) {
   if (state.view === 'pyramid') {drawPyramid(data); return;}
   const root = $('chart'); root.replaceChildren();
   root.onkeydown = null; root.onblur = null; root.removeAttribute('tabindex'); root.removeAttribute('aria-label');
-  const numbers = data.series.flatMap(s => s.points.map(p => p.value)).filter(v => v !== null);
+  const numbers = data.series.flatMap(s => s.points.map(p => data.subjectStacked ? p.stack_upper : p.value)).filter(v => v !== null);
   if (!numbers.length) {root.append(el('div', data.percentage ? 'No periods have a complete, nonnegative selection with a positive total.' : data.normalized ? 'No series has a nonzero starting value in ' + data.periods[0] + '.' : 'No numeric values in this selection. Source markers are shown in the table below.', 'chart-message')); return;}
   const narrow = window.matchMedia('(max-width:720px)').matches;
   const width = narrow ? 520 : 860, height = 360, left = 65, right = 22, top = 25, bottom = 49;
@@ -395,7 +411,7 @@ function drawChart(data) {
   const ticks = [...new Set(Array.from({length: tickCount}, (_, i) => Math.round(i * (data.periods.length - 1) / Math.max(1, tickCount - 1))))];
   for (const i of ticks) svg.append(svgNode('text', {x: x(i), y: height - 22, 'text-anchor': 'middle'}, data.periods[i]));
   for (const [i, s] of data.series.entries()) {
-    if (data.percentage) {
+    if (data.percentage || data.subjectStacked) {
       let path = '', segment = [];
       function finishArea() {
         if (!segment.length) return;
@@ -440,7 +456,7 @@ function drawChart(data) {
       const point = s.points[inspected], row = el('div', undefined, 'tooltip-row'), name = el('span');
       name.append(el('span', undefined, 'legend-dot c' + i % colors.length), categoryNode('span', data.compare, s.label)); row.append(name, el('b', point.value === null ? data.normalized || data.percentage ? '—' : point.raw_value ?? '—' : number(point.value) + (data.percentage ? '%' : '')));
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); tooltip.append(row);
-      if (point.value !== null) hover.append(svgNode('circle', {cx: x(inspected), cy: y(data.percentage ? point.stack_upper : point.value), r: 4, fill: colors[i % colors.length], class: 'point'}));
+      if (point.value !== null) hover.append(svgNode('circle', {cx: x(inspected), cy: y(data.percentage || data.subjectStacked ? point.stack_upper : point.value), r: 4, fill: colors[i % colors.length], class: 'point'}));
     }
     tooltip.hidden = false; const ratio = root.clientWidth / width;
     tooltip.style.left = Math.max(5, Math.min(root.clientWidth - tooltip.offsetWidth - 5, x(inspected) * ratio + 12)) + 'px'; tooltip.style.top = '22px';
@@ -473,7 +489,8 @@ $('clear-all').addEventListener('click', () => {if (state.detail) {
   if (state.view === 'pyramid') setUniversities([]); else state.values = [];
   renderCategories(); updatePlot();
 }});
-$('stack-universities').addEventListener('change', () => {if (state.data) renderResults();});
+$('stack-universities').addEventListener('change', () => {syncSubjectMode(); if (state.data) renderResults();});
+$('stack-subjects').addEventListener('change', () => {syncSubjectMode(); updatePlot();});
 $('measure').addEventListener('change', updatePlot);
 let rangeTimer;
 function changeRange(id, immediately = false) {
@@ -504,8 +521,8 @@ $('period-slider').addEventListener('pointerdown', event => {
   const finish = e => {move(e); changeRange(target, true); slider.removeEventListener('pointermove', move); slider.removeEventListener('pointerup', finish); slider.removeEventListener('pointercancel', finish);};
   move(event); slider.addEventListener('pointermove', move); slider.addEventListener('pointerup', finish); slider.addEventListener('pointercancel', finish);
 });
-for (const id of ['normalize', 'percentage']) $(id).addEventListener('change', () => {syncModes(); if (state.data) renderResults();});
-$('reset').addEventListener('click', () => {$('stack-universities').checked = false; $('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = defaultDataset(); if (id) {$('dataset').value = id; loadDataset(id);}});
+for (const id of ['normalize', 'percentage']) $(id).addEventListener('change', () => {syncSubjectMode(); if (state.data) renderResults();});
+$('reset').addEventListener('click', () => {$('stack-universities').checked = false; $('stack-subjects').checked = false; $('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = defaultDataset(); if (id) {$('dataset').value = id; loadDataset(id);}});
 let resizeTimer;
 window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
   if (state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.plotData || state.data);

@@ -167,6 +167,10 @@ class Explorer:
                     raise ValueError('Invalid category for ' + code)
                 else:
                     selections[code] = [value]
+            breakdown = request.get('breakdown')
+            if breakdown is not None and (breakdown not in ('Fachrichtung', 'Fachbereich')
+                    or breakdown not in aggregation or aggregation[breakdown]['mode'] != 'sum'):
+                raise ValueError('Subject breakdown requires All subjects in an additive table')
             columns = json.loads(snapshot['columns_json'])
             measures = [c for c in columns if c['type'] == 'c']
             measure = request.get('measure', measures[0]['code'])
@@ -187,14 +191,16 @@ class Explorer:
             arguments.extend(values)
             clauses.append(identifier(time['code']) + ' IN (' + ','.join('?' for _ in period_codes) + ')')
             arguments.extend(period_codes)
-            selection = ','.join(identifier(code) for code in (time['code'], comparison, measure))
+            selection = ','.join(identifier(code) for code in (time['code'], comparison, measure, *([breakdown] if breakdown else [])))
             rows = connection.execute(f'SELECT {selection} FROM {identifier(snapshot["table_name"])} WHERE '
                                       + ' AND '.join(clauses), arguments)
             derived = any(a['mode'] == 'sum' for a in aggregation.values())
             expected = math.prod(len(v) for v in selections.values())
-            raw = {}
+            raw, subject_raw = {}, {}
             for row in rows:
                 raw.setdefault((row[0], row[1]), []).append(row[2])
+                if breakdown:
+                    subject_raw.setdefault((row[0], row[1], row[3]), []).append(row[2])
             comparison_labels = dict(zip(dimensions[comparison]['values'], dimensions[comparison]['valueTexts']))
             series = []
             for value in values:
@@ -214,8 +220,22 @@ class Explorer:
                              'value': numeric_value(source_value)}
                     if derived:
                         point['missing_components'] = missing
+                    if breakdown:
+                        segments = []
+                        count = expected // len(selections[breakdown])
+                        for subject, subject_label in zip(dimensions[breakdown]['values'], dimensions[breakdown]['valueTexts']):
+                            parts = subject_raw.get((code, value, subject), [])
+                            absent = count - len(parts) + sum(numeric_value(v) is None for v in parts)
+                            total = None
+                            if not absent:
+                                with localcontext() as context:
+                                    context.prec = 400
+                                    total = format(sum((Decimal(v) for v in parts), Decimal(0)), 'f')
+                            segments.append({'code': subject, 'label': subject_label, 'value': numeric_value(total),
+                                             'raw_value': total, 'missing_components': absent})
+                        point['subject_segments'] = segments
                     points.append(point)
                 series.append({'code': value, 'label': comparison_labels[value], 'points': points})
             return {'dataset': dataset_id, 'snapshot_id': snapshot['id'], 'measure': measure,
                     'compare': comparison, 'filters': filters, 'periods': selected_labels, 'series': series,
-                    'derived': derived, 'aggregation': aggregation}
+                    'derived': derived, 'aggregation': aggregation, 'breakdown': breakdown}

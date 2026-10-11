@@ -39,7 +39,7 @@ class Handler(SimpleHTTPRequestHandler):
         url = urlsplit(self.path)
         if not url.path.startswith('/api/'):
             # Serve only known public assets; never expose the database or repository.
-            if url.path not in ('/', '/index.html', '/app.js', '/normalize.js', '/pyramid.js', '/subject-translations.json', '/style.css', '/favicon.svg'):
+            if url.path not in ('/', '/index.html', '/app.js', '/normalize.js', '/pyramid.js', '/subjects.js', '/subject-translations.json', '/style.css', '/favicon.svg'):
                 self.send_error(404)
                 return
             return super().do_GET()
