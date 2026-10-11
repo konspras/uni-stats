@@ -20,16 +20,16 @@ function pyramidSides(data) {
 
 // Rank once from raw counts in the latest displayed year, shared by both sides.
 function rankPyramidUniversities(universities) {
-  return universities.map((university, colorIndex) => {
+  return universities.map(university => {
     const values = pyramidSides(university.data).sides.map(s => s.points.at(-1)?.value);
     const total = values.every(v => Number.isFinite(v) && v >= 0) ? values.reduce((sum, v) => sum + v, 0) : null;
-    return {...university, colorIndex, rankingTotal:total};
+    return {...university, rankingTotal:total};
   }).sort((a, b) => {
     if (a.rankingTotal === null && b.rankingTotal !== null) return 1;
     if (b.rankingTotal === null && a.rankingTotal !== null) return -1;
     return (b.rankingTotal ?? 0) - (a.rankingTotal ?? 0) ||
       a.label.localeCompare(b.label, 'en', {sensitivity:'base'}) || a.code.localeCompare(b.code);
-  });
+  }).map((university, colorIndex) => ({...university, colorIndex}));
 }
 
 // Keep university components alongside totals so display modes share one denominator.

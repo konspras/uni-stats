@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 
-const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities} = vm.runInNewContext(
-  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities});');
+const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor} = vm.runInNewContext(
+  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor});');
 const dataset = (id, group, dimensions) => ({id, group, dimensions});
 const catalog = [
   dataset('entrants-gender', 'Bachelor entrants', ['Fachrichtung', 'Geschlecht', 'Hochschule']),
@@ -73,9 +73,13 @@ for(const series of pyramidSides(ranked).sides) for(const point of series.points
 assert.equal(ranked.series[1].points.at(-1).segments.map(p=>p.value).join(','),'40,10,25','Keep total ranking even when women have a different ranking');
 const earlier=sumPyramidUniversities(input.map(u=>({...u,data:{...u.data,periods:['2024'],series:u.data.series.map(s=>({...s,points:s.points.slice(0,1)}))}})));
 assert.equal(earlier.universities.map(u=>u.code).join(','),'A,C,B','Ranking follows the selected end year');
-for(const u of ranked.universities) assert.equal(u.colorIndex,earlier.universities.find(v=>v.code===u.code).colorIndex,'Colors stay attached to universities across changed rankings');
+for (const data of [ranked,earlier]) data.universities.forEach((u,index)=>assert.equal(u.colorIndex,index,'Shading follows descending population rank'));
+for(const side of [0,1]) {
+  const lightness=ranked.universities.map(u=>Number(pyramidColor(u.colorIndex,3,side).match(/ ([\d.]+)%\)/)[1]));
+  assert(lightness.every((value,i)=>!i||value>lightness[i-1]),'Largest university is darkest; smaller universities are lighter on both sides');
+}
 const tieA=uni('Alpha',[[1,10],[2,20],[0,9999]]),tieZ=uni('Zulu',[[2,20],[3,10],[0,0]]);
 const missing=uni('Missing',[[999,999],[999,null],[0,0]]), zero=uni('Zero',[[0,0],[0,0],[0,0]]);
 assert.equal(rankPyramidUniversities([missing,tieZ,zero,tieA]).map(u=>u.code).join(','),'Alpha,Zulu,Zero,Missing','Ties are alphabetical; unknown gender does not affect rank; missing values go last without a fallback year');
 assert.equal(JSON.stringify(input),before,'Ranking does not change source data');
-console.log('PASS: fixed latest-year combined ranking, ties, missing counts, selected end year and consistent colors.');
+console.log('PASS: fixed latest-year combined ranking, ties, missing counts, selected end year and descending-rank shading.');
