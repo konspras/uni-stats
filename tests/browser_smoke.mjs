@@ -186,6 +186,87 @@ try {
   const mobile = await send('Page.captureScreenshot', {format: 'png', captureBeyondViewport: true,
     clip: {x: 0, y: 0, width: 390, height: metrics.cssContentSize.height, scale: 1}});
   await writeFile('/tmp/uni-stats-mobile.png', Buffer.from(mobile.data, 'base64'));
+  // Pyramid is a separate tab, with its own selection state and a flow-only catalog.
+  await send('Emulation.setDeviceMetricsOverride', {width:1360,height:1100,deviceScaleFactor:1,mobile:false});
+  await evaluate(`document.getElementById('pyramid-tab').click()`); await wait(ready + ` && state.view==='pyramid' && state.data.dataset==='px-x-1502040100_123'`);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tabs a')].map(a=>a.textContent)`), ['Pyramid','Data explorer']);
+  assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
+  assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 6);
+  assert.equal(await evaluate(`viewDatasets().every(d=>['Bachelor entrants','Degrees'].includes(d.group))`), true);
+  assert.equal(await evaluate(`document.querySelector('#dataset option[value="px-x-1502040100_105"]')`), null);
+  assert.equal(await evaluate(`document.getElementById('compare-field').hidden && document.getElementById('compare-categories').hidden`), true);
+  assert.equal(await evaluate(`document.getElementById('normalize').closest('label').hidden`), true);
+  assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['Mann','233'],['Frau','53']]);
+  assert.equal(await evaluate(`document.querySelectorAll('#filters select[data-dimension="Hochschule"]').length`), 1);
+  assert.deepEqual(await evaluate(`['left','right'].map(side=>document.querySelector('.pyramid-row:last-of-type .pyramid-bar[data-side="'+side+'"]').getAttribute('data-value'))`), ['233','53']);
+  assert.deepEqual(await evaluate(`['.pyramid-row:first-of-type','.pyramid-row:last-of-type'].map(s=>document.querySelector(s).getAttribute('data-period'))`), ['1980/81','2025/26']);
+  await evaluate(`document.getElementById('split-nationality').click()`); await wait(ready + ` && state.compare==='Staatsangehörigkeit (Kategorie)'`);
+  assert.equal(await evaluate(`state.data.dataset`), 'px-x-1502040100_124');
+  assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).raw_value)`), ['134','152']);
+  assert.equal(await evaluate(`selectionLabel('Hochschule',state.filters.Hochschule)`), 'EPFL');
+  // All universities is one derived pyramid, equal to summing each source university.
+  await evaluate(`{const s=document.querySelector('#filters select[data-dimension="Hochschule"]');s.value='__derived_all__';s.dispatchEvent(new Event('change'));}`); await wait(ready);
+  assert.equal(await evaluate(`state.data.derived && state.data.filters.Hochschule===null`), true);
+  assert.equal(await evaluate(`document.querySelectorAll('#chart svg').length`), 1);
+  const directSum = await evaluate(`(async()=>{const v=variable('Hochschule');const query={dataset:state.detail.id,snapshot:state.detail.snapshot_id,
+    compare:'Hochschule',values:v.values,filters:{...state.filters,'Staatsangehörigkeit (Kategorie)':'0'}};
+    delete query.filters.Hochschule;
+    const result=await api('/api/series?query='+encodeURIComponent(JSON.stringify(query)));
+    return result.series.reduce((total,s)=>total+s.points.at(-1).value,0);})()`);
+  assert.equal(await evaluate(`state.data.series[0].points.at(-1).value`), directSum);
+  await select('from',await evaluate(`timeVariable().values.at(-5)`)); await wait(ready + ` && state.data.periods.length===5`);
+  await evaluate(`document.getElementById('split-gender').click()`); await wait(ready + ` && state.compare==='Geschlecht'`);
+  assert.equal(await evaluate(`state.filters.Hochschule`), null);
+  assert.equal(await evaluate(`state.data.periods.length`), 5);
+  assert.equal(await evaluate(`state.data.periods[0]`), '2021/22', 'Match periods by labels across source code renumbering');
+  await evaluate(`document.getElementById('percentage').click()`);
+  assert.equal(await evaluate(`document.querySelectorAll('.pyramid-bar').length`), 10);
+  assert.equal(await evaluate(`Math.abs(state.plotData.series.reduce((n,s)=>n+s.points.at(-1).value,0)-100)<1e-10`), true);
+  assert.equal(await evaluate(`document.querySelector('#values-table tbody td:nth-child(2)').textContent.endsWith('%')`), true);
+  await select('dataset','px-x-1503040100_101'); await wait(ready + ` && state.data.dataset==='px-x-1503040100_101'`);
+  assert.equal(await evaluate(`state.data.series.length`), 3);
+  assert.deepEqual(await evaluate(`pyramidSides(state.data).sides.map(s=>s.points.at(-1).raw_value)`), ['172','35']);
+  assert.equal(await evaluate(`document.getElementById('pyramid-period-note').textContent.includes('graduation year')`), true);
+  assert.equal(await evaluate(`document.querySelectorAll('#values-table thead th').length`), 4);
+  assert.equal(await evaluate(`(()=>{const source=state.data, modified=structuredClone(source);
+    const unknown=pyramidSides(modified).other[0];unknown.points.at(-1).value=10;unknown.points.at(-1).raw_value='10';
+    state.data=modified;renderResults();
+    const correct=!document.getElementById('pyramid-note').hidden &&
+      Math.abs(pyramidSides(state.plotData).sides[0].points.at(-1).value-172/(172+35+10)*100)<1e-10 &&
+      document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar').length===2;
+    state.data=source;renderResults();return correct;})()`), true, 'Unknown gender stays in totals without being assigned to a side');
+  // Preserve qualification, subject, university, and range when changing source split.
+  await evaluate(`{const s=document.querySelector('#filters select[data-dimension="Examensstufe"]');s.value=categories(variable('Examensstufe')).find(c=>c.text==='Master').code;s.dispatchEvent(new Event('change'));}`); await wait(ready);
+  await evaluate(`document.getElementById('split-nationality').click()`); await wait(ready + ` && state.data.dataset==='px-x-1503040100_102'`);
+  assert.equal(await evaluate(`selectionLabel('Examensstufe',state.filters.Examensstufe)`), 'Master');
+  for (const dataset of await evaluate(`viewDatasets().map(d=>d.id)`)) {
+    await select('dataset',dataset); await wait(ready + ` && state.data.dataset===${JSON.stringify(dataset)}`);
+    assert.equal(await evaluate(`document.getElementById('error').hidden`), true, 'pyramid '+dataset);
+    assert.equal(await evaluate(`document.querySelectorAll('.pyramid-row').length===state.data.periods.length`), true);
+  }
+  await evaluate(`document.getElementById('reset').click()`); await wait(ready + ` && state.data.dataset==='px-x-1502040100_123'`);
+  assert.equal(await evaluate(`document.getElementById('percentage').checked`), false);
+  await select('from','41'); await wait(ready + ` && state.data.periods.length===5`);
+  await evaluate(`document.getElementById('chart').focus();document.getElementById('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
+  assert.equal(await evaluate(`document.querySelector('#chart .tooltip strong').textContent`), '2025/26');
+  const pyramidDesktop = await send('Page.captureScreenshot', {format:'png'});
+  await writeFile('/tmp/uni-stats-pyramid-desktop.png',Buffer.from(pyramidDesktop.data,'base64'));
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await wait(`document.documentElement.scrollWidth<=390 && document.querySelector('#chart svg').getAttribute('viewBox').startsWith('0 0 520 ')`);
+  const pyramidMetrics=await send('Page.getLayoutMetrics');
+  const pyramidMobile=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width:390,height:pyramidMetrics.cssContentSize.height,scale:1}});
+  await writeFile('/tmp/uni-stats-pyramid-mobile.png',Buffer.from(pyramidMobile.data,'base64'));
+  await evaluate(`document.getElementById('explorer-tab').click()`); await wait(ready + ` && state.view==='explorer' && state.data.dataset==='px-x-1502040100_105'`);
+  assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 28);
+  assert.equal(await evaluate(`document.getElementById('percentage').checked`), true);
+  assert.equal(await evaluate(`document.getElementById('from-label').textContent`), '2007/08');
+  await evaluate(`document.getElementById('pyramid-tab').click()`); await wait(ready + ` && state.view==='pyramid'`);
+  assert.equal(await evaluate(`state.data.periods.length`), 5);
+  assert.equal(await evaluate(`document.getElementById('percentage').checked`), false);
+  await evaluate(`loadDataset('px-x-1502040100_105')`);
+  assert.equal(await evaluate(`state.detail.group`), 'Bachelor entrants', 'Explicitly reject enrolled datasets');
+  await send('Page.navigate',{url:base+'/#pyramid'}); await wait(ready + ` && state.view==='pyramid'`);
+  assert.equal(await evaluate(`state.detail.group`), 'Bachelor entrants', 'Direct pyramid URL has flow-only defaults');
   assert.deepEqual(errors, [], 'Browser console errors');
-  console.log('PASS: controls layout, slider dragging/keyboard/coincident handles, stacked percentages/table/tooltips, selected-series denominator, mutually exclusive modes, normalization, All across 28 datasets, derived sums, published totals, mobile layout, no browser errors.');
+  console.log('PASS: explorer regression checks, flow-only Pyramid tab, both splits, source-period mapping, all-university sums, degrees and unknown gender, percentage mode, tab state restoration, direct URLs, keyboard inspection and mobile layout.');
 } finally {socket.close();}

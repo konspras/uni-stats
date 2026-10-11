@@ -9,7 +9,8 @@ const names = {Hochschule: 'University', Fachrichtung: 'Subject (detailed)', Fac
   Leistung: 'Activity', Kostenart: 'Cost type', Erlöskategorie: 'Revenue category', Indikator: 'Indicator'};
 const colors = ['#365bd6', '#db7853', '#278d7a', '#8d5cbe', '#b79b29', '#ca5992', '#3b90b7', '#797564'];
 const ALL = '__derived_all__';
-const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0};
+const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0,
+  view: location.hash === '#pyramid' ? 'pyramid' : 'explorer', views: {}};
 const date = value => value ? new Date(value).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}) : 'Not supplied';
 const label = code => names[code] || code;
 const number = value => value === null ? '—' : new Intl.NumberFormat(undefined, {maximumFractionDigits: 2}).format(value);
@@ -33,8 +34,63 @@ function renderRange() {
   $('range-fill').style.left = start + '%'; $('range-fill').style.width = end - start + '%';
 }
 function syncModes() {
-  $('normalize').disabled = $('percentage').checked;
+  $('normalize').disabled = state.view === 'pyramid' || $('percentage').checked;
   $('percentage').disabled = $('normalize').checked;
+}
+function viewDatasets() {return state.catalog.filter(d => state.view !== 'pyramid' || isPyramidDataset(d));}
+function renderView() {
+  const pyramid = state.view === 'pyramid';
+  $('view-title').textContent = pyramid ? 'Pyramid' : 'Data explorer';
+  document.title = 'UniStats · ' + $('view-title').textContent;
+  for (const view of ['pyramid', 'explorer']) {
+    const active = view === state.view, tab = $(view + '-tab');
+    tab.classList.toggle('active-tab', active);
+    if (active) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+  }
+  $('compare-field').hidden = pyramid; $('compare-categories').hidden = pyramid; $('pyramid-split').hidden = !pyramid;
+  $('normalize').closest('label').hidden = pyramid; $('pyramid-period-note').hidden = !pyramid;
+  $('dataset').replaceChildren();
+  const available = viewDatasets(); $('dataset-count').textContent = available.length + ' datasets';
+  for (const group of ['Enrolled students', 'Bachelor entrants', 'Degrees', 'Staff', 'Finances', 'Other datasets']) {
+    const datasets = available.filter(d => d.group === group); if (!datasets.length) continue;
+    const optgroup = el('optgroup'); optgroup.label = group;
+    for (const dataset of datasets) option(optgroup, dataset.id, titleFor(dataset)); $('dataset').append(optgroup);
+  }
+  syncModes();
+}
+function captureSelection() {
+  if (!state.detail) return null;
+  return {dataset:state.detail.id, snapshot:state.detail.snapshot_id, filters:{...state.filters}, compare:state.compare,
+    values:[...state.values], from:timeVariable().values[Number($('from').value)], to:timeVariable().values[Number($('to').value)],
+    fromLabel:timeVariable().valueTexts[Number($('from').value)], toLabel:timeVariable().valueTexts[Number($('to').value)],
+    measure:$('measure').value, normalized:$('normalize').checked, percentage:$('percentage').checked};
+}
+function defaultDataset() {
+  const desired = state.view === 'pyramid' ? 'px-x-1502040100_123' : 'px-x-1502040100_105';
+  return viewDatasets().find(d => d.id === desired)?.id || viewDatasets()[0]?.id;
+}
+async function switchView() {
+  const view = location.hash === '#pyramid' ? 'pyramid' : 'explorer';
+  if (view === state.view || !state.catalog.length) return;
+  state.views[state.view] = captureSelection(); state.view = view;
+  const saved = state.views[view];
+  $('normalize').checked = view === 'explorer' && Boolean(saved?.normalized);
+  $('percentage').checked = Boolean(saved?.percentage);
+  renderView(); await loadDataset(saved?.dataset || defaultDataset(), saved?.snapshot, {restore:saved});
+}
+function renderSplit() {
+  if (state.view !== 'pyramid' || !state.detail) return;
+  const dataset = state.catalog.find(d => d.id === state.detail.id);
+  for (const [id, code] of [['split-gender','Geschlecht'], ['split-nationality','Staatsangehörigkeit (Kategorie)']]) {
+    $(id).disabled = !pyramidCounterpart(state.catalog, dataset, code);
+    $(id).setAttribute('aria-pressed', String(state.compare === code));
+  }
+}
+async function changeSplit(code) {
+  if (state.view !== 'pyramid' || !state.detail || state.compare === code) return;
+  const dataset = state.catalog.find(d => d.id === state.detail.id);
+  const target = pyramidCounterpart(state.catalog, dataset, code);
+  if (target) await loadDataset(target.id, undefined, {preserve:true});
 }
 function selectionLabel(code, value) {
   if (value === null) return state.detail.aggregation_options[code].mode === 'sum' ? 'All (derived sum)' : 'All (published total)';
@@ -56,6 +112,7 @@ function summary() {
 }
 function renderCategories() {
   if (!state.detail) return;
+  if (state.view === 'pyramid') {renderSplit(); return;}
   const query = $('category-search').value.trim().toLocaleLowerCase();
   const root = $('categories'); root.replaceChildren();
   const choices = categories(variable(state.compare)).sort((a, b) => Number(state.values.includes(b.code)) - Number(state.values.includes(a.code)));
@@ -104,13 +161,18 @@ function renderSource() {
   raw.append(el('pre', JSON.stringify({metadata: detail.metadata, columns: detail.columns,
     source: detail.source, response_metadata: detail.source_metadata}, null, 2))); definitions.append(raw);
 }
-async function loadDataset(id, snapshotId) {
+async function loadDataset(id, snapshotId, options = {}) {
+  if (state.view === 'pyramid' && !isPyramidDataset(state.catalog.find(d => d.id === id))) {
+    error('The pyramid supports entrants and degrees with a gender or nationality split.'); return;
+  }
+  const previous = options.preserve ? {selection:captureSelection(), variables:state.detail.metadata.variables} : null;
   clearTimeout(rangeTimer);
   const generation = ++state.generation; ++state.plotSequence; state.plotController?.abort();
   state.datasetController?.abort(); state.datasetController = new AbortController();
   state.detail = null; state.data = null;
   $('categories').replaceChildren(); $('filters').replaceChildren();
   for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'category-search']) $(control).disabled = true;
+  $('split-gender').disabled = true; $('split-nationality').disabled = true;
   error(''); $('chart').setAttribute('aria-busy', 'true'); $('chart').replaceChildren(el('div', 'Loading dataset…', 'chart-message'));
   $('legend').replaceChildren(); $('values-table').querySelector('tbody').replaceChildren();
   try {
@@ -119,15 +181,37 @@ async function loadDataset(id, snapshotId) {
     state.detail = detail; state.filters = {};
     const dims = detail.metadata.variables.filter(v => !v.time);
     for (const v of dims) state.filters[v.code] = preferred(v);
-    state.compare = dims.find(v => v.code === 'Hochschule')?.code || dims[0].code;
-    const cv = variable(state.compare); state.values = categories(cv).filter(c => ['EPFL', 'ETHZ'].includes(c.text)).map(c => c.code);
+    state.compare = state.view === 'pyramid' ? dims.find(v => pyramidSplits.includes(v.code)).code : dims.find(v => v.code === 'Hochschule')?.code || dims[0].code;
+    const cv = variable(state.compare); state.values = state.view === 'pyramid' ? [...cv.values] : categories(cv).filter(c => ['EPFL', 'ETHZ'].includes(c.text)).map(c => c.code);
     if (!state.values.length) state.values = [preferred(cv)]; delete state.filters[state.compare];
+    if (previous) for (const v of dims.filter(v => v.code !== state.compare)) {
+      const oldValue = previous.selection.filters[v.code];
+      if (oldValue === null && detail.aggregation_options[v.code]) state.filters[v.code] = null;
+      else {
+        const old = previous.variables.find(old => old.code === v.code);
+        const oldLabel = old?.valueTexts[old.values.indexOf(oldValue)];
+        const match = categories(v).find(c => c.text === oldLabel);
+        if (match) state.filters[v.code] = match.code;
+      }
+    }
+    if (options.restore) {
+      state.compare = options.restore.compare; state.values = [...options.restore.values]; state.filters = {...options.restore.filters};
+    }
+    $('dataset').value = id;
     $('dataset-description').textContent = detail.id + ' · ' + detail.metadata.variables.find(v => v.time).valueTexts.at(-1);
     $('measure').replaceChildren(); for (const m of detail.columns.filter(c => c.type === 'c')) option($('measure'), m.code, m.text || m.code);
     $('compare').replaceChildren(); for (const v of dims) option($('compare'), v.code, label(v.code)); $('compare').value = state.compare;
     const time = detail.metadata.variables.find(v => v.time);
     for (const id of ['from', 'to']) {$(id).max = time.values.length - 1;}
     $('from').value = 0; $('to').value = time.values.length - 1; renderRange();
+    const saved = options.restore || previous?.selection;
+    if (saved) {
+      // Paired tables can start in different years and renumber period codes.
+      const first = Math.max(0, time.valueTexts.indexOf(saved.fromLabel));
+      const end = time.valueTexts.indexOf(saved.toLabel), last = end < 0 ? time.values.length - 1 : end;
+      if (last >= first) {$('from').value = first; $('to').value = last; renderRange();}
+      if (detail.columns.some(c => c.type === 'c' && c.code === saved.measure)) $('measure').value = saved.measure;
+    }
     $('snapshot').replaceChildren(); for (const [i, s] of detail.snapshots.entries()) option($('snapshot'), s.id, (i === 0 ? 'Latest · ' : '') + date(s.fetched_at) + ' · #' + s.id);
     $('snapshot').value = detail.snapshot_id; $('category-search').value = '';
     for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'category-search']) $(control).disabled = false;
@@ -162,8 +246,14 @@ function renderResults() {
   $('plot-context').textContent = summary();
   $('period-badge').textContent = data.periods[0] + ' — ' + data.periods.at(-1);
   $('legend').replaceChildren(); for (const [i, s] of data.series.entries()) {
-    const item = el('span', undefined, 'legend-item'); item.append(el('span', undefined, 'legend-dot c' + i % colors.length), el('span', s.label + (s.normalization_issue ? ' (no baseline)' : ''))); $('legend').append(item);
+    if (state.view === 'pyramid' && !pyramidSides(data).sides.includes(s)) continue;
+    const index = state.view === 'pyramid' ? pyramidSides(data).sides.indexOf(s) : i;
+    const item = el('span', undefined, 'legend-item'); item.append(el('span', undefined, 'legend-dot c' + index % colors.length), el('span', s.label + (s.normalization_issue ? ' (no baseline)' : ''))); $('legend').append(item);
   }
+  const others = state.view === 'pyramid' ? pyramidSides(data).other : [];
+  $('pyramid-note').hidden = !others.some(s => s.points.some(p => p.value === null || p.value !== 0));
+  $('pyramid-note').textContent = 'Unknown categories are kept in the values table and percentage totals, but are not assigned to either side.';
+  $('pyramid-period-note').textContent = detail.group === 'Degrees' ? 'Rows: graduation year (calendar year), not entry year.' : 'Rows: entry year (academic year), not the number still enrolled.';
   const unavailable = data.series.filter(s => s.normalization_issue);
   $('normalization-note').hidden = !unavailable.length;
   $('normalization-note').textContent = unavailable.length ? 'Cannot normalize ' + unavailable.map(s => s.label).join(', ') +
@@ -185,10 +275,12 @@ function renderResults() {
       else if (point.value === null) cell.title = data.derived ? 'Incomplete sum: ' + point.missing_components + ' missing components' : point.raw_value === null ? 'No published observation' : 'Source missing-value marker'; row.append(cell);}
     body.append(row);
   }
-  $('table-count').textContent = data.periods.length + ' periods · ' + data.series.length + ' lines';
+  $('table-count').textContent = data.periods.length + ' periods · ' + data.series.length + (state.view === 'pyramid' ? ' categories' : ' lines');
 }
 function svgNode(tag, attributes = {}, text) {const node = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value); if (text !== undefined) node.textContent = text; return node;}
 function drawChart(data) {
+  $('chart').classList.toggle('pyramid-chart', state.view === 'pyramid');
+  if (state.view === 'pyramid') {drawPyramid(data); return;}
   const root = $('chart'); root.replaceChildren();
   root.onkeydown = null; root.onblur = null; root.removeAttribute('tabindex'); root.removeAttribute('aria-label');
   const numbers = data.series.flatMap(s => s.points.map(p => p.value)).filter(v => v !== null);
@@ -268,6 +360,9 @@ function drawChart(data) {
   root.onkeydown = event => {if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {event.preventDefault(); inspect(event.key === 'Home' ? 0 : event.key === 'End' ? data.periods.length - 1 : inspected + (event.key === 'ArrowRight' ? 1 : -1));}};
 }
 $('dataset').addEventListener('change', () => loadDataset($('dataset').value));
+window.addEventListener('hashchange', switchView);
+$('split-gender').addEventListener('click', () => changeSplit('Geschlecht'));
+$('split-nationality').addEventListener('click', () => changeSplit('Staatsangehörigkeit (Kategorie)'));
 $('snapshot').addEventListener('change', () => loadDataset($('dataset').value, Number($('snapshot').value)));
 $('category-search').addEventListener('input', renderCategories);
 $('compare').addEventListener('change', () => {
@@ -308,7 +403,7 @@ $('period-slider').addEventListener('pointerdown', event => {
   move(event); slider.addEventListener('pointermove', move); slider.addEventListener('pointerup', finish); slider.addEventListener('pointercancel', finish);
 });
 for (const id of ['normalize', 'percentage']) $(id).addEventListener('change', () => {syncModes(); if (state.data) renderResults();});
-$('reset').addEventListener('click', () => {$('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = state.catalog.find(d => d.id === 'px-x-1502040100_105')?.id || state.catalog[0]?.id; if (id) {$('dataset').value = id; loadDataset(id);}});
+$('reset').addEventListener('click', () => {$('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = defaultDataset(); if (id) {$('dataset').value = id; loadDataset(id);}});
 let resizeTimer;
 window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
   if (state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.plotData || state.data);
@@ -317,12 +412,7 @@ async function init() {
   try {
     const result = await api('/api/datasets'); state.catalog = result.datasets; $('dataset-count').textContent = result.datasets.length + ' datasets';
     if (!result.datasets.length) throw new Error('No collected datasets are available yet.');
-    $('dataset').replaceChildren();
-    for (const group of ['Enrolled students', 'Bachelor entrants', 'Degrees', 'Staff', 'Finances', 'Other datasets']) {
-      const datasets = result.datasets.filter(d => d.group === group); if (!datasets.length) continue;
-      const optgroup = el('optgroup'); optgroup.label = group; for (const dataset of datasets) option(optgroup, dataset.id, titleFor(dataset)); $('dataset').append(optgroup);
-    }
-    $('dataset').disabled = false; $('dataset').value = result.datasets.find(d => d.id === result.default_dataset)?.id || result.datasets[0].id; await loadDataset($('dataset').value);
+    renderView(); $('dataset').disabled = false; await loadDataset(defaultDataset());
   } catch (e) {error(e.message); $('chart').replaceChildren(el('div', 'Data is currently unavailable.', 'chart-message')); $('chart').setAttribute('aria-busy', 'false');}
 }
 init();

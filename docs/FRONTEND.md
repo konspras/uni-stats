@@ -1,6 +1,17 @@
-# Data explorer
+# University statistics frontend
 
-The first frontend is a single Data explorer tab, served by `server.py` on port **8768**. It reads SQLite directly; there is no collection worker, periodic task or implicit data write. No web framework, build step, charting dependency, external font or CDN is required.
+The frontend has a **Pyramid** tab to the left of **Data explorer**, served by `server.py` on port **8768**. It reads SQLite directly; there is no collection worker, periodic task or implicit data write. No web framework, build step, charting dependency, external font or CDN is required. The root URL initially shows Data explorer; `/#pyramid` opens Pyramid directly. Each tab retains its own selection and display mode when switching.
+
+## Pyramid
+
+Only entrant and degree tables containing a university dimension and a gender or nationality breakdown are eligible. **Enrolled students, staff and finances are excluded**, as are flow tables lacking either supported split. The current picker contains six source tables: entrant broad/detailed subject tables `_121`–`_124` and detailed degree tables `1503040100_101`/`_102`.
+
+- A single university dropdown offers one institution or **All (derived sum)**, which produces one pyramid by adding university observations within the selected table. Multiple university pyramids are not supported.
+- **Gender / Nationality** buttons select the appropriate source table with the same flow metric and other dimensions. Gender places men on the left and women on the right; nationality places Swiss nationals on the left and foreign nationals on the right. University, subject, qualification and time range are retained where available. Source codes can differ: category labels and period labels identify matching selections. If the target has a shorter history, the range is limited to available periods.
+- Oldest source years are at the top; newest at the bottom. Both sides share the same magnitude scale and show positive counts. Entrant rows mean academic entry year, not the number still enrolled. Degree rows mean calendar graduation year, not the graduate's entry cohort. No assumed completion-time shift is applied.
+- The shared selection panel retains dataset, measure, subject/qualification filters, snapshot and explicit All options. The chart controls retain the two-handle time slider and optional percentages within each year's total. Start-year normalization is hidden in Pyramid. Reset returns to detailed CS entrants at EPFL, split by gender, over the full source history with raw counts.
+- Unknown gender categories remain in the table and percentage denominator without being assigned to men or women. A notice appears when unknown observations are nonzero or missing. Missing markers stay missing; percentage mode requires a complete nonnegative total. No joint gender/nationality distribution is inferred.
+- Hover rows, or focus the chart and use Up/Down/Home/End, to inspect values. Longer histories scroll vertically inside the plot. Mobile layouts use the same mirrored scale and period ordering.
 
 ## Interaction model
 
@@ -68,6 +79,7 @@ python3 -m unittest discover -s tests -v
 node --check web/app.js
 node tests/test_normalize.mjs
 node tests/test_percentage.mjs
+node tests/test_pyramid.mjs
 ```
 
 The Python suite includes HTTP tests that bind an ephemeral local socket. Browser checks use Node 22+ and an isolated Chromium CDP port, with no extra package installation:
@@ -78,4 +90,4 @@ chromium --headless=new --no-sandbox --disable-gpu --user-data-dir=/tmp/uni-stat
 node tests/browser_smoke.mjs
 ```
 
-The browser check exercises default values, normalization, the controls panel layout, actual slider dragging/keyboard navigation, coincident handles, stacked percentages in chart/table/tooltips, mutual exclusion, All across all 28 datasets, CS Bachelor entrants summed by gender/nationality, published totals, ratio restrictions, mobile width and console errors. Node tests cover percentages, complete totals, missing/zero/negative periods and numerical stability. Python tests cover aggregation precision, missing markers/coordinates, unknown categories and rejection of unreviewed sums. Screenshots are written under `/tmp`. These read-only website checks leave stored observations unchanged.
+The browser check covers the explorer controls and all 28 datasets, then all six Pyramid datasets, both splits, one/All universities, period mapping across differing histories, degrees/unknown gender, percentage mode, independent tab selections, rejection of enrolled data, direct URLs, keyboard inspection and mobile layout. Node tests cover Pyramid eligibility/counterparts/side labels and percentage/normalization calculations. Python tests cover source aggregation and the HTTP API. Screenshots are written under `/tmp`. These read-only website checks leave stored observations unchanged.
