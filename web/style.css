@@ -38,3 +38,9 @@
 .update-status-panel dl{margin:12px 0;display:grid;grid-template-columns:1fr 1.4fr;gap:7px 12px;font-size:11px}
 .update-status-panel dt{color:var(--muted)}.update-status-panel dd{margin:0;overflow-wrap:anywhere}
 .update-status-panel #update-status-error{color:#9a5900;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.data-mode {display:flex; gap:8px; align-items:center; font-size:12px;}
+.data-mode[hidden] {display:none;}
+.data-mode select {width:auto; padding:6px 8px; font-size:12px;}
+
+@media(max-width:720px){.header{min-height:100px;height:auto;padding-top:10px;padding-bottom:10px;gap:12px}.header-status{min-width:0;max-width:210px}.data-mode{max-width:100%}.data-mode select{width:100%;max-width:210px;height:28px;font-size:10px}.update-status>summary{font-size:10px}}

@@ -51,7 +51,7 @@ const number = value => value === null ? '—' : new Intl.NumberFormat(undefined
 function el(tag, text, className) {const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node;}
 function option(select, value, text) {const node = el('option', text); node.value = value; select.append(node);}
 function error(message) {$('error').textContent = message; $('error').hidden = !message;}
-async function api(path, signal) {const response = await fetch(path, {signal}); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Could not load data'); return result;}
+async function api(path, signal) {return DataProvider.api(path, signal);}
 function variable(code) {return state.detail.metadata.variables.find(v => v.code === code);}
 function categories(v) {return v.values.map((code, i) => ({code, text: v.valueTexts[i]}));}
 function timeVariable() {return state.detail.metadata.variables.find(v => v.time);}
@@ -255,12 +255,23 @@ async function loadDataset(id, snapshotId, options = {}) {
       }
     }
     if (options.restore) {
-      state.compare = options.restore.compare; state.values = [...options.restore.values]; state.filters = {...options.restore.filters};
+      const restored = options.restore;
+      const mapCode = (code, value) => {
+        const current = dims.find(v => v.code === code), old = options.restoreVariables?.find(v => v.code === code);
+        if (value === null && detail.aggregation_options[code]) return null;
+        if (!current) return undefined;
+        const text = old?.valueTexts[old.values.indexOf(value)];
+        return (text ? categories(current).find(c => c.text === text)?.code : undefined) ?? (current.values.includes(value) ? value : preferred(current));
+      };
+      if (dims.some(v => v.code === restored.compare)) state.compare = restored.compare;
+      state.values = [...new Set(restored.values.map(value => mapCode(state.compare,value)).filter(value => value != null))];
+      if (!state.values.length) state.values = [preferred(dims.find(v => v.code === state.compare))];
+      state.filters = Object.fromEntries(dims.filter(v => v.code !== state.compare).map(v => [v.code,mapCode(v.code,restored.filters[v.code])]));
     }
     if (state.view === 'pyramid') {
       const savedUniversities = (options.restore || previous?.selection)?.universities;
       const codes = variable('Hochschule').values;
-      const oldUniversity = previous?.variables.find(v => v.code === 'Hochschule');
+      const oldUniversity = (previous?.variables || options.restoreVariables)?.find(v => v.code === 'Hochschule');
       const chosen = savedUniversities?.map(code => oldUniversity ?
         categories(variable('Hochschule')).find(c => c.text === oldUniversity.valueTexts[oldUniversity.values.indexOf(code)])?.code : code).filter(code => codes.includes(code));
       setUniversities(savedUniversities?.length === 0 ? [] : chosen?.length ? chosen : [state.filters.Hochschule || preferred(variable('Hochschule'))]);
@@ -283,6 +294,7 @@ async function loadDataset(id, snapshotId, options = {}) {
     $('snapshot').replaceChildren(); for (const [i, s] of detail.snapshots.entries()) option($('snapshot'), s.id, (i === 0 ? 'Latest · ' : '') + date(s.fetched_at) + ' · #' + s.id);
     $('snapshot').value = detail.snapshot_id; $('category-search').value = '';
     for (const control of ['compare', 'measure', 'from', 'to', 'snapshot', 'select-all', 'clear-all', 'category-search']) $(control).disabled = false;
+    $('snapshot').disabled = DataProvider.mode === 'csv';
     if (time.values.length === 1) {$('from').disabled = true; $('to').disabled = true;}
     renderCategories(); renderFilters(); renderSource(); await updatePlot();
   } catch (e) {if (e.name !== 'AbortError' && generation === state.generation) {error(e.message); $('chart').replaceChildren(el('div', 'This dataset could not be loaded.', 'chart-message'));}}
@@ -528,6 +540,10 @@ window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer 
 }, 100);});
 async function init() {
   try {
+    await DataProvider.ready;
+    $('data-mode-field').hidden = !DataProvider.backend;
+    if (DataProvider.backend && sessionStorage.getItem('uni-stats-data-mode') === 'database') await DataProvider.setMode('database');
+    $('data-mode').value = DataProvider.mode;
     const [result, translations] = await Promise.all([api('/api/datasets'), api('/subject-translations.json')]);
     state.subjectTranslations = translations.translations; state.catalog = result.datasets; $('dataset-count').textContent = result.datasets.length + ' datasets';
     if (!result.datasets.length) throw new Error('No collected datasets are available yet.');
@@ -537,18 +553,20 @@ async function init() {
 init();
 
 function renderUpdateStatus(status) {
-  const warning = Boolean(status.last_error || status.enabled && !status.worker_active);
+  const publicationError = status.publication?.last_error;
+  const warning = Boolean(status.last_error || publicationError || status.kind !== 'published' && status.enabled && !status.worker_active);
   const root = $('update-status'); root.classList.toggle('update-warning', warning);
-  $('update-status-label').textContent = warning ? 'Data updates failing' : status.running ? 'Checking for new data…' : !status.enabled ? 'Automatic checks off' : status.last_success ? 'Last checked: ' + new Intl.DateTimeFormat(undefined, {day:'numeric', month:'short',timeZone:'Europe/Zurich'}).format(new Date(status.last_success)) : 'Weekly checks active';
+  $('update-status-label').textContent = warning ? (publicationError ? 'Publication failing' : 'Data updates failing') : status.kind === 'published' ? 'Last report: ' + date(status.reported_at) : status.running ? 'Checking for new data…' : !status.enabled ? 'Automatic checks off' : status.last_success ? 'Last checked: ' + new Intl.DateTimeFormat(undefined, {day:'numeric', month:'short',timeZone:'Europe/Zurich'}).format(new Date(status.last_success)) : 'Weekly checks active';
   const timestamp = value => value ? new Intl.DateTimeFormat(undefined, {dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Zurich'}).format(new Date(value)) + ' (Zurich)' : 'Not yet';
-  const rows = [['Worker',status.worker_active ? 'Active' : 'Inactive'],['Last attempt',timestamp(status.last_check)],
+  const rows = [[status.kind === 'published' ? 'Public report' : 'Worker',status.kind === 'published' ? timestamp(status.reported_at) : status.worker_active ? 'Active' : 'Inactive'],['Last attempt',timestamp(status.last_check)],
     ['Last successful check',timestamp(status.last_success)],['Latest snapshot',timestamp(status.latest_snapshot)],
     ['Next scheduled check',timestamp(status.next_scheduled_check)],['Next retry',status.next_retry ? timestamp(status.next_retry) : 'None'],
     ['Last result',({skipped:'No new data; download skipped',complete:'Check completed',failed:'Failed',interrupted:'Interrupted',running:'Checking for new data'})[status.last_result] || 'Not yet']];
+  if (status.publication) rows.push(['Last successful push',timestamp(status.publication.last_success)],['Export / push',status.publication.running ? 'Publishing…' : status.publication.pending ? 'Pending / retrying' : 'Up to date'],['Publication retry',status.publication.next_retry ? timestamp(status.publication.next_retry) : 'None']);
   const details = $('update-status-details');details.replaceChildren();
   for (const [name,value] of rows) details.append(el('dt',name),el('dd',value));
   const errorNode=$('update-status-error');errorNode.hidden=!warning;
-  errorNode.textContent=status.last_error || (warning ? 'The automatic update worker is not active.' : '');
+  errorNode.textContent=[status.last_error,publicationError].filter(Boolean).join(' · ') || (warning ? 'The automatic update worker is not active.' : '');
 }
 async function refreshUpdateStatus() {
   try {renderUpdateStatus(await api('/api/update-status'));}
@@ -559,3 +577,20 @@ async function refreshUpdateStatus() {
 }
 refreshUpdateStatus();
 setInterval(refreshUpdateStatus,60_000);
+
+$('data-mode').addEventListener('change', async () => {
+  const selection = state.detail ? captureSelection() : null;
+  const restoreVariables = state.detail?.metadata.variables;
+  state.plotController?.abort(); state.datasetController?.abort();
+  $('chart').setAttribute('aria-busy', 'true');
+  try {
+    await DataProvider.setMode($('data-mode').value);
+    state.views = {};
+    const result = await api('/api/datasets'); state.catalog = result.datasets;
+    renderView();
+    // CSV mode always resets historical snapshot IDs to the latest export.
+    if (selection && state.catalog.some(d => d.id === selection.dataset)) {delete selection.snapshot; await loadDataset(selection.dataset, undefined, {restore:selection,restoreVariables});}
+    else await loadDataset(defaultDataset());
+    await refreshUpdateStatus();
+  } catch(e) {error(e.message); $('chart').setAttribute('aria-busy', 'false');}
+});

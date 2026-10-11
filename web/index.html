@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore historical Swiss university statistics from BFS.">
   <title>UniStats · Pyramid</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css">
-  <script src="/normalize.js" defer></script>
-  <script src="/pyramid.js" defer></script>
-  <script src="/subjects.js" defer></script>
-  <script src="/app.js" defer></script>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="normalize.js" defer></script>
+  <script src="pyramid.js" defer></script>
+  <script src="subjects.js" defer></script>
+  <script src="data-provider.js" defer></script>
+  <script src="app.js" defer></script>
 </head>
 <body>
   <header class="header">
     <div class="brand"><span class="brand-mark" aria-hidden="true">u.</span><div><strong>UniStats</strong></div></div>
     <div class="header-status"><div class="source-badge"><span class="status-dot"></span>BFS / Swiss Federal Statistical Office</div>
+      <label id="data-mode-field" class="data-mode" hidden><span class="sr-only">Data source</span><select id="data-mode"><option value="csv">CSV · latest report</option><option value="database">Local database · snapshots</option></select></label>
       <details id="update-status" class="update-status"><summary id="update-status-label" aria-live="polite">Checking update status…</summary>
         <div class="update-status-panel"><strong>Automatic data updates</strong><p>Every Sunday at 15:00 · Europe/Zurich</p><dl id="update-status-details"></dl><p id="update-status-error" role="status" hidden></p><p>Charts use the last successfully collected snapshot.</p></div>
       </details></div>

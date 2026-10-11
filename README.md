@@ -10,7 +10,7 @@ Collect historical Swiss university statistics from the Swiss Federal Statistica
 
 ## Current state
 
-The fetcher checks metadata and stores complete snapshots directly in SQLite only when a new reporting period or university table appears. CSV/file-export output has been removed. The website runs as a persistent user service with automatic Sunday 15:00 Europe/Zurich metadata checks. It downloads full snapshots only when new reporting periods or university tables appear.
+The fetcher checks metadata and stores complete snapshots directly in SQLite only when a new reporting period or university table appears. The SQLite collector remains separate from a validated static CSV export. The frontend defaults to CSVs; a local-only data-source control enables database access and historical snapshots. The website runs as a persistent user service with automatic Sunday 15:00 Europe/Zurich metadata checks. It downloads full snapshots only when new reporting periods or university tables appear.
 
 The first file-based measurement covered 28 tables and 3,519,548 rows. See [the volume report](docs/DATA_VOLUME.md) for measurements and scope.
 
@@ -25,6 +25,8 @@ Open [the Data explorer](http://localhost:8768/#explorer). It provides all colle
 Enable **Normalize to start = 100** to compare growth relative to each series' first selected year. Zero/missing starting values are flagged rather than replaced with a later baseline. The calculation affects the display only.
 
 The untitled controls panel below the plot has a two-handle time slider and **Percentage of total**, which shows a 100% stacked area chart and percentage table using the selected series' total each year. Selecting either display mode disables the other until unchecked. Missing/negative components or zero totals leave gaps.
+
+See [static publishing documentation](docs/STATIC_PUBLISHING.md) for export layout, GitHub Pages setup, independent push retries and measured download sizes.
 
 The `uni-stats.service` user service is enabled and starts with the OS. It serves existing SQLite snapshots while a background worker handles scheduled checks and downloads. See [frontend/service documentation](docs/FRONTEND.md) for API, operation and tests.
 
@@ -76,6 +78,8 @@ Skipped and successful commands exit zero; failures exit nonzero. Unknown time s
 ```bash
 python3 -m unittest discover -s tests -v
 python3 scripts/verify_database.py
+python3 scripts/export_static.py
+python3 scripts/verify_static.py
 ```
 
 Tests exercise discovery through a synthetic API, direct SQLite imports, retained snapshots, skipped fetches, complete-collection rollback, concurrent readers, schema changes, process recovery and the CLI. The read-only verifier checks every published snapshot's counts and stored-value checksum, complete collection coverage, SQLite integrity and foreign keys.

@@ -1,85 +1,86 @@
-# Static data publishing for GitHub Pages: exploration
+# Static CSV publishing
 
-Assessment on 2026-10-11. This document proposes a migration; the current service, collection schedule and database remain unchanged. GitHub Pages serves static HTML/CSS/JavaScript, so the Python `/api/*` endpoints must be replaced for the public site. [GitHub Pages documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages).
+Implemented on 2026-10-11. SQLite remains the authoritative archive. The default frontend reads the **latest successful report only** from static CSV/JSON files. The local service advertises its backend through `backend.json`; a data-source selector beside the header status enables the existing database API and historical snapshot picker. A selection persists within the browser tab; new tabs default to CSV. GitHub Pages never probes localhost or requires a backend.
 
-## Recommended architecture
+## Data layout and query behavior
 
 ```text
-BFS → Sunday collector → SQLite snapshots → validated CSV/JSON export
-    → Git push → GitHub Actions Pages deployment → browser data loader/aggregator
+web/data/index.json                              # atomic release pointer + timestamped status
+web/data/releases/v1-<snapshot-set-hash>/manifest.json
+web/data/releases/v1-<snapshot-set-hash>/<dataset>/metadata.json
+web/data/releases/v1-<snapshot-set-hash>/<dataset>/<university-index>.csv
+web/data/releases/v1-<snapshot-set-hash>/<dataset>/<university-index>.csv.gz
+web/data/releases/v1-<snapshot-set-hash>/<dataset>/<university-index>-totals.csv[.gz]
 ```
 
-SQLite stays the authoritative local store and snapshot archive. The export is reproducible from successful database snapshots and never requires fetching BFS again. The frontend reads the same static files locally and publicly; the local service continues to own the collection/publishing schedule. Export source rows, rather than every possible filtered/aggregated chart, because the latter grows combinatorially.
+CSV headers, original category codes, measure strings and missing markers round-trip unchanged. Metadata contains original source definitions, comments, dictionaries and reviewed aggregation policies. Filenames use indexes; dataset-local university codes are mapped explicitly in metadata, never assumed universal. Raw files include **every source observation**, so all existing selectors/comparisons/stacks remain available. The public metadata exposes only the exported latest snapshot; SQLite retains history.
 
-Use CSV for observation rows and JSON for the dataset catalog, metadata, snapshot index, aggregation policies, source notes and publication/check status. CSV preserves original dimension codes, column order and raw measure strings, including missing markers. English translations remain a separate versioned dictionary. CSV alone cannot describe the source classifications or allowed summations.
+For reviewed additive subject tables, additional per-university files precompute All-subject totals for each remaining coordinate. Their weight and per-measure missing-component columns preserve incomplete sums. Queries use these files only for All-subject filters without subject comparison/breakdown; detailed queries use the original rows. No other source classifications are changed.
 
-## Measured size and loading strategy
+`web/data-provider.js` supplies the existing response shapes. `web/static-worker.js` fetches at most four university shards concurrently, explicitly decompresses `.csv.gz` with `DecompressionStream`, parses CSV and aggregates away from the main UI thread. Browsers without gzip streaming load raw CSV. Length and SHA-256 checks protect responses; SHA verification requires a secure context (HTTPS or localhost). Parsed-file LRU cache is limited to 8 MiB of source text; JS object memory is larger. Only the selected dataset/universities are loaded. Decimal sums use integer decimal arithmetic before conversion to plotting numbers, and missing components remain gaps.
 
-The current database contains 28 successful dataset snapshots and 3,519,548 rows. A read-only measurement serialized every source row as UTF-8 CSV, splitting by dataset and university. It used LF record endings and gzip level 6. The measurement did not modify the database or export data into Git.
+All URLs are relative to the site base, including `/uni-stats/`. `web/backend.json` declares no backend in the static build; the local Python service overrides that response. The database itself is never exposed as an HTTP file. The service's public-file whitelist allows only frontend assets and confined exported-data paths.
 
-| Quantity | Measured size |
+## Export, publication and schedule
+
+```bash
+python3 scripts/export_static.py
+python3 scripts/verify_static.py
+```
+
+The exporter pins dataset snapshot IDs from a consistent catalog, validates every CSV cell's round trip and source row count, writes an immutable release, then atomically replaces the index. Unchanged snapshot exports reuse and verify existing files; a metadata-only status export took **0.22 seconds** locally. Change the export format version whenever immutable output logic changes. Failed export leaves the prior index usable. Local old releases may remain so already-open pages can finish requests; only the current release enters each publication.
+
+The installed `uni-stats.service` uses `--scheduled-updates --publish-static`:
+
+1. Sunday 15:00 Europe/Zurich: the existing collector checks metadata. New tables/reporting periods trigger a complete SQLite snapshot; otherwise no observation download occurs.
+2. Successful, skipped and failed checks queue a timestamped public report, using the last successful data where necessary.
+3. The publisher exports from SQLite and pushes the frontend/report to `gh-pages` in a dedicated, ignored `data/publishing/` checkout. It includes only **committed frontend assets** and validated generated data, with no SQLite files or unrelated working-tree edits. It never force-pushes. The development branch remains separate.
+4. Failed export/push remains pending and retries after 1, 2, 4, 8, 16 and at most 24 hours. Publication retries run independently of the Sunday collection schedule and do not fetch BFS again. Pending/error state survives service restarts in `publication_state`. The worker polls deadlines every 30 seconds.
+
+The local status dropdown reads live worker and push status even while charts use CSVs: last successful push, pending/running, retry time and actual errors. The public site shows the **report timestamp**, last check and exported snapshot; it never claims a live worker is active. If pushing or Pages deployment fails, the public site retains its older report. No email notifications are configured. A Git push success does not itself verify GitHub's deployment job; GitHub Actions reports deployment outcomes.
+
+## GitHub Pages activation
+
+The generated `gh-pages` branch contains the entire ready-to-serve site at its root, plus `.nojekyll`. In [repository Pages settings](https://github.com/konspras/uni-stats/settings/pages), choose **Deploy from a branch → gh-pages → /(root)** and Save. Subsequent worker pushes update that publishing branch automatically. GitHub documents this branch-publishing flow in [its configuration instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+
+Git pushes use existing non-interactive SSH credentials (`BatchMode=yes`) with interactive prompting disabled. Publication errors appear on the local site if those credentials stop working. Repository Pages settings require administrator access through a browser or an authenticated API; an SSH Git key alone cannot change those settings.
+
+## Validation and measured responsiveness
+
+On the current collection:
+
+| Measurement | Result |
 | --- | --- |
-| All CSV observation files | 51,974,295 bytes (51.97 MB / 49.57 MiB) |
-| Same files gzip-compressed | 9,262,077 bytes (9.26 MB / 8.83 MiB) |
-| Number of dataset/university files | 452 |
-| Largest individual raw CSV | 625,994 bytes |
-| Detailed entrants: all universities | 1,291,245 bytes raw / 275,197 bytes gzip |
-| Detailed entrants: EPFL | 90,799 bytes raw / 18,281 bytes gzip |
-| Detailed entrants: ETH Zurich | 91,563 bytes raw / 19,276 bytes gzip |
-| Detailed entrants: Lausanne | 84,297 bytes raw / 19,678 bytes gzip |
+| Source datasets / rows | 28 / 3,519,548 |
+| Source university shards | 452 |
+| Files including precomputed totals | 775 raw CSVs + gzip copies |
+| All raw CSVs including totals | 55,043,793 bytes |
+| All gzip files including totals | 9,683,719 bytes |
+| Largest individual compressed CSV | 101,311 bytes (583,899 bytes raw) |
+| Largest dataset selection | 16 files / 1,477,705 bytes gzip / 9,562,836 bytes raw |
+| Entrants, all universities, detailed subjects | 275,197 bytes gzip |
+| Entrants, all universities, All-subject totals | 8,956 bytes gzip |
 
-These sizes exclude JSON metadata, frontend assets and additional future snapshots. The experiment took approximately 6 seconds, including reading, CSV serialization and gzip compression, but was a sizing experiment rather than a production exporter benchmark. Reproduction script: `/tmp/measure-static-export.py`; results: `/tmp/uni-stats-static-size.json`.
+Largest individual raw CSV is 625,994 bytes; it differs from the file with the largest compressed size. Sizes above exclude small JSON/frontend requests. The largest dataset selection is degrees by qualification level, detailed subject, gender and university. The browser loads the 16 constituent shards; there is no single full-collection download.
 
-Recommended file layout:
+`verify_static.py` independently compared every exported source cell against SQLite and ran **339 real-data parity queries** touching all 775 files. The exhaustive small-cube tests add **204 combinations**, with missing observations, nonnumeric markers, unknown gender, exact decimals, all filters, subject stacks, batched universities and a second snapshot. A separate test checks published totals. Tests also simulate push failure/restart/retry with no recollection and a real push to a temporary bare Git repository, proving checkout isolation and latest-release-only publication.
 
-```text
-public-data/index.json
-public-data/status.json
-public-data/snapshots/<snapshot-id>/metadata.json
-public-data/snapshots/<snapshot-id>/universities/<university-code>.csv
-public-data/snapshots/<snapshot-id>/universities/<university-code>.csv.gz  # optional
+`tests/browser_static.mjs` runs against a plain HTTP file server under `/uni-stats/`, without any API, and opens all 28 datasets. Headless Chromium on this machine, cold worker/file loads:
+
+| Browser operation | Elapsed |
+| --- | --- |
+| Initial CS entrants pyramid | ~0.10 s |
+| Entrants All-subject totals, all universities | ~0.06 s |
+| Entrants subject stacks, all universities | ~0.64 s |
+| Largest degrees subject-stack selection | ~0.86 s |
+
+These are local-loopback timings, not simulated internet/mobile measurements. Network download time must be added for remote hosting. The query engine's heaviest measured real-data query was ~0.98 seconds in Node; browser aggregation remains in a worker so controls can respond during computation.
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 scripts/verify_static.py
+# Isolated Chromium with CDP enabled, plus a plain server serving web/ at /uni-stats/:
+node tests/browser_static.mjs
+# Local scheduled service, with an available database:
+node tests/browser_smoke.mjs
 ```
-
-A metadata manifest maps source codes to file paths; filenames are encoded safely rather than assuming future codes are filename-safe. Load only the selected dataset, snapshot and university shards. All-university selections fetch every shard for that dataset, not all 28 datasets. Retain parsed shards in a bounded cache and perform parsing/aggregation in a Web Worker so the controls remain responsive. Initial browser memory consumption must be measured: CSV transfer size is not equivalent to parsed JavaScript memory use.
-
-Raw CSV is sufficient to start, given the small per-university files. Gzip is an optional improvement; if shipping `.csv.gz`, explicitly decompress it in JavaScript and feature-detect support, rather than assuming Pages sets a Content-Encoding header for that filename. The [Compression Standard](https://compression.spec.whatwg.org/) defines gzip `DecompressionStream`; a raw CSV fallback avoids requiring it.
-
-GitHub documents a 1 GB published-site limit and a soft 100 GB/month bandwidth limit. The current export fits comfortably, but preserving many full snapshots publicly will grow the site. [GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits). Preserve all successful snapshots in SQLite; initially export all snapshots needed by the existing public snapshot selector. If publication size later becomes an issue, agree a retention/archive policy explicitly rather than silently dropping older choices.
-
-## Preserving frontend behavior
-
-Introduce a data-provider module with catalog, dataset-details, series and update-status methods. Replace `api()` calls with that provider. Its static implementation fetches metadata/CSV and produces the same result structures currently supplied by `Explorer`, including university and subject components. Keeping those structures lets the existing chart, tooltip, sorting, normalization and percentage code remain largely intact.
-
-The work is primarily migrating the Python query/aggregation logic into a browser worker. It must preserve:
-
-- All source datasets, dimensions, categories and measure columns.
-- Reviewed additive/published-total policies; totals must not be added to their component categories.
-- Exact raw strings and decimal addition before converting to plotting numbers.
-- Missing markers and absent coordinates: incomplete sums remain gaps, not partial counts.
-- Unknown gender/nationality categories and existing percentage denominators.
-- Snapshot-specific metadata, source references, comments and historical snapshot selection.
-- University/subject stacks and the current latest-displayed-year ranking.
-
-Resolve every asset/data URL relative to the deployed site base. The current leading-slash asset and API paths will break at the project-site path `/uni-stats/` unless adapted. Test both `/` and `/uni-stats/` using a plain static HTTP server with no Python API.
-
-Do not promise a speed improvement from this migration without browser benchmarks. Lazy loading/caching should make common selections modest, but All selections and first loads must be measured on a slower device too. Existing Python queries provide a useful correctness reference during the migration.
-
-## Collection, publishing and failures
-
-After a successful collection, export into a staging directory using one consistent read transaction. Validate row counts, checksums, metadata references and manifest completeness, then publish the completed export together. Give immutable snapshot files stable paths and deterministic contents/order; only the small index/status files need to change on a metadata-only check. No partial export should become the public dataset.
-
-The weekly service should track collection and publication separately. If SQLite collection succeeds but exporting, pushing or Pages deployment fails, retain the successful snapshot and retry publication from it. A later source check that skips downloads must not cause pending publication to be forgotten. The service needs non-interactive GitHub credentials for publishing; an interactive SSH agent is not a reliable boot-service dependency.
-
-A public static site cannot query the local worker's current health. Publish a small status JSON after every check, including failures and unchanged-data skips. Display its report timestamp, last successful check, latest published snapshot and expected next check. If reports stop arriving beyond a grace period, show an overdue-status warning in the browser. Do not present an exported `worker_active` flag as live health. If pushing itself fails, the public site may only learn that something is wrong through that overdue warning; local service logs/status remain the immediate diagnosis.
-
-Keep a Pages workflow triggered by pushes that include the public export/assets. It uploads and deploys one validated static site artifact. [GitHub Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages). Publishing status-only updates is lightweight. Automated data pushes should be isolated from unrelated working-tree edits, for example through a dedicated publishing checkout/branch, and never commit arbitrary local files.
-
-## Suggested implementation sequence
-
-1. Build a deterministic exporter and verify every exported observation and metadata dictionary against SQLite.
-2. Implement the static data provider/worker, preserving current query output structures; test it against Python results for all 28 datasets and key aggregation/missing-value cases.
-3. Serve the frontend entirely from files locally, at both root and project subpaths; benchmark typical selections and All-subject/university stacks.
-4. Add a Pages build/deploy workflow and an initial static publication.
-5. Connect validated exports and publication retries to the Sunday worker; publish timestamped status even when no observations change.
-
-This is a moderate migration, not just replacing an endpoint with a CSV URL. The source data volume is manageable; correctness of client-side aggregation, publication recovery and static status semantics are the main implementation concerns.

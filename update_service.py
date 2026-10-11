@@ -47,9 +47,10 @@ def run_fetch(database):
 
 
 class UpdateWorker:
-    def __init__(self, database, clock=now_utc, runner=run_fetch):
+    def __init__(self, database, clock=now_utc, runner=run_fetch, publisher=None):
         self.database = Path(database).resolve()
         self.clock, self.runner = clock, runner
+        self.publisher = publisher
         self.stop_event = threading.Event()
         self.thread = None
         self.lock = None
@@ -102,6 +103,8 @@ class UpdateWorker:
         while not self.stop_event.is_set():
             try:
                 self.tick()
+                if self.publisher:
+                    self.publisher.tick()
                 self.runtime_error = None
             except Exception as error:
                 self.runtime_error = str(error)
@@ -134,6 +137,8 @@ class UpdateWorker:
                     last_success=?,last_result=?,last_error=NULL,failures=0 WHERE id=1''',
                     (next_sunday(finished).isoformat(), finished.isoformat(), result))
             print('Scheduled BFS check ' + result, flush=True)
+        if self.publisher:
+            self.publisher.request()
         return True
 
     def record_failure(self, error):
@@ -163,6 +168,8 @@ def read_status(database, enabled=False):
         attempt = connection.execute("SELECT * FROM collection_runs WHERE mode IN ('download','check') ORDER BY id DESC LIMIT 1").fetchone()
         success = connection.execute("SELECT finished_at FROM collection_runs WHERE mode IN ('download','check') AND status IN ('complete','skipped') ORDER BY id DESC LIMIT 1").fetchone()
         snapshot = connection.execute('SELECT MAX(fetched_at) FROM latest_snapshots').fetchone()[0]
+        has_publication = connection.execute("SELECT 1 FROM sqlite_master WHERE name='publication_state'").fetchone()
+        publication = dict(connection.execute('SELECT * FROM publication_state WHERE id=1').fetchone()) if has_publication else None
     next_check = min(filter(None, [state.get('next_due'), state.get('retry_due')]), default=None)
     error = state.get('last_error')
     if attempt and attempt['status'] in ('failed', 'interrupted'):
@@ -170,7 +177,7 @@ def read_status(database, enabled=False):
     attempts = [v for v in [state.get('last_attempt'), attempt['started_at'] if attempt else None] if v]
     successes = [v for v in [state.get('last_success'), success['finished_at'] if success else None] if v]
     last_result = 'running' if state.get('running') else 'failed' if state.get('last_error') else attempt['status'] if attempt else state.get('last_result')
-    return {'enabled': enabled, 'worker_active': False, 'schedule': 'Sundays at 15:00',
+    return {'publication': publication, 'enabled': enabled, 'worker_active': False, 'schedule': 'Sundays at 15:00',
             'timezone': 'Europe/Zurich', 'next_check': next_check,
             'next_scheduled_check': state.get('next_due'), 'next_retry': state.get('retry_due'),
             'last_check': max(attempts, key=datetime.fromisoformat) if attempts else None,

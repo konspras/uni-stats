@@ -7,7 +7,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import sqlite3
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, unquote
 
 from explorer import Explorer
 from update_service import UpdateWorker, read_status
@@ -39,9 +39,14 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
+        if url.path == '/backend.json':
+            self.send_json({'available': True})
+            return
         if not url.path.startswith('/api/'):
             # Serve only known public assets; never expose the database or repository.
-            if url.path not in ('/', '/index.html', '/app.js', '/normalize.js', '/pyramid.js', '/subjects.js', '/subject-translations.json', '/style.css', '/favicon.svg'):
+            public_data = (ROOT / 'web' / unquote(url.path).lstrip('/')).resolve()
+            is_data = public_data.is_relative_to((ROOT / 'web/data').resolve()) and public_data.is_file()
+            if not is_data and url.path not in ('/data-provider.js', '/static-query.js', '/static-worker.js', '/backend.json', '/', '/index.html', '/app.js', '/normalize.js', '/pyramid.js', '/subjects.js', '/subject-translations.json', '/style.css', '/favicon.svg'):
                 self.send_error(404)
                 return
             return super().do_GET()
@@ -82,10 +87,17 @@ def main():
     parser.add_argument('--port', type=int, default=8768)
     parser.add_argument('--database', type=Path, default=ROOT / 'data/university_stats.sqlite3')
     parser.add_argument('--scheduled-updates', action='store_true', help='Enable Sunday 15:00 Zurich collection')
+    parser.add_argument('--publish-static', action='store_true', help='Export/push latest reports to gh-pages with independent retries')
     args = parser.parse_args()
+    if args.publish_static and not args.scheduled_updates:
+        parser.error('--publish-static requires --scheduled-updates')
     if not args.database.is_file():
         parser.error('Database is missing. Run python3 scripts/fetch_bfs.py first.')
-    updater = UpdateWorker(args.database) if args.scheduled_updates else None
+    publisher = None
+    if args.publish_static:
+        from publication import Publisher
+        publisher = Publisher(args.database)
+    updater = UpdateWorker(args.database, publisher=publisher) if args.scheduled_updates else None
     server = create_server(args.host, args.port, args.database, updater)
     print(f'University data explorer on http://{args.host}:{server.server_port}', flush=True)
     try:

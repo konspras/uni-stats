@@ -40,7 +40,18 @@ async function select(id, value) {await evaluate(`{const node = document.getElem
 try {
   await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', {width: 1360, height: 1100, deviceScaleFactor: 1, mobile: false});
+  const fresh = await send('Page.addScriptToEvaluateOnNewDocument',{source:"sessionStorage.removeItem('uni-stats-data-mode')"});
   await send('Page.navigate', {url: base}); await wait(ready);
+  await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:fresh.identifier});
+  assert.equal(await evaluate(`DataProvider.mode`),'csv','New tabs default to static CSVs');
+  assert.equal(await evaluate(`$('snapshot').disabled && !$('data-mode-field').hidden`),true);
+  const originalCSV=await evaluate(`state.data`);
+  await select('data-mode','database'); await wait(ready + ` && DataProvider.mode==='database'`);
+  assert.deepEqual(await evaluate(`state.data`),originalCSV,'CSV and database views agree');
+  assert.equal(await evaluate(`$('snapshot').disabled`),false,'Database enables snapshot selection');
+  await select('data-mode','csv');await wait(ready + ` && DataProvider.mode==='csv'`);
+  assert.deepEqual(await evaluate(`state.data`),originalCSV,'Switching back preserves the selection');
+  await select('data-mode','database');await wait(ready + ` && DataProvider.mode==='database'`);
   assert.equal(await evaluate(`state.view`), 'pyramid', 'Root URL defaults to Pyramid');
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 884, 'Desktop pyramid is 70% taller');
