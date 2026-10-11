@@ -237,8 +237,12 @@ try {
   assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['Mann','233'],['Frau','53']]);
   assert.equal(await evaluate(`document.querySelectorAll('#filters select[data-dimension="Hochschule"]').length`), 0);
   assert.deepEqual(await evaluate(`['left','right'].map(side=>document.querySelector('.pyramid-row:last-of-type .pyramid-bar[data-side="'+side+'"]').getAttribute('data-value'))`), ['233','53']);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>node.firstChild.nodeValue)`),['233','53'],'Unstacked labels show each population count');
+
   assert.deepEqual(await evaluate(`['.pyramid-row:first-of-type','.pyramid-row:last-of-type'].map(s=>document.querySelector(s).getAttribute('data-period'))`), ['1980/81','2025/26']);
   async function checkPyramidFit() {
+    assert.equal(await evaluate(`(()=>{const root=document.getElementById('chart'),box=root.getBoundingClientRect(),labels=[...document.querySelectorAll('.pyramid-total')];return labels.length===state.data.periods.length*2 && labels.every(node=>{const b=node.getBoundingClientRect();return b.left>=box.left && b.right<=box.right && b.top>=box.top && b.bottom<=box.bottom;});})()`),true,'Every year has two total labels that fit the fixed chart');
+
     assert.equal(await evaluate(`(()=>{const r=document.getElementById('chart'),b=r.getBoundingClientRect();
       return r.scrollHeight<=r.clientHeight && [...document.querySelectorAll('.pyramid-bar')].every(bar=>{
         const x=bar.getBoundingClientRect();return x.top>=b.top && x.bottom<=b.bottom;
@@ -260,14 +264,15 @@ try {
         stats.push({height:root.clientHeight,noScroll:root.scrollHeight<=root.clientHeight,
           rows:document.querySelectorAll('.pyramid-row').length,barHeight:bars[0].height,
           labelsFit:years.every((b,i)=>!i || b.top>=years[i-1].bottom),
-          barsFit:bars.every(b=>b.top>=root.getBoundingClientRect().top && b.bottom<=root.getBoundingClientRect().bottom)});
+          barsFit:bars.every(b=>b.top>=root.getBoundingClientRect().top && b.bottom<=root.getBoundingClientRect().bottom),
+          totalLabelsFit:[...document.querySelectorAll('.pyramid-total')].length===count*2 && [...document.querySelectorAll('.pyramid-total')].every(t=>{const b=t.getBoundingClientRect(),r=root.getBoundingClientRect();return b.top>=r.top && b.bottom<=r.bottom && b.left>=r.left && b.right<=r.right;})});
       }
       document.getElementById('chart').focus();document.getElementById('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}));
       const inspected=document.querySelector('#chart .tooltip strong').textContent;
       drawPyramid(source);return {stats,inspected};})()`);
     assert.deepEqual(measurements.stats.map(s=>s.rows),[2,100]);
     assert.equal(measurements.stats[0].height,measurements.stats[1].height);
-    assert(measurements.stats.every(s=>s.noScroll && s.labelsFit && s.barsFit));
+    assert(measurements.stats.every(s=>s.noScroll && s.labelsFit && s.barsFit && s.totalLabelsFit));
     assert(measurements.stats[0].barHeight>measurements.stats[1].barHeight*40);
     assert.equal(measurements.inspected,'1999','Dense unlabeled years remain keyboard-inspectable');
   }
@@ -295,6 +300,7 @@ try {
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
     return ['left','right'].every((side,i)=>Math.abs(bars.filter(b=>b.dataset.side===side).reduce((sum,b)=>sum+Number(b.dataset.value),0)-pyramidSides(state.plotData).sides[i].points.at(-1).value)<1e-9);})()`), true);
   await evaluate(`document.getElementById('percentage').click()`);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>Number(node.dataset.count))`),subsetTotals,'Stacked percentage bars retain original count labels');
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
     return Math.abs(bars.reduce((sum,b)=>sum+Number(b.dataset.value),0)-100)<1e-9;})()`), true);
   assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).value)`), subsetTotals, 'Display transforms preserve source counts');
@@ -317,6 +323,9 @@ try {
   assert.equal(await evaluate(`state.data.series[0].points.at(-1).value`), directSum);
   await evaluate(`document.getElementById('stack-universities').click()`);
   assert.equal(await evaluate(`document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar').length`), await evaluate(`state.universities.length*2`));
+  assert.equal(await evaluate(`[...document.querySelectorAll('.pyramid-bar')].every(bar=>getComputedStyle(bar).fillOpacity==='1')`),true,'All stacked segments are fully opaque');
+  assert.equal(await evaluate(`state.data.universities[0].colorCount===state.data.universities.filter(u=>u.rankingTotal>0).length`),true,'Nonzero universities get the complete shade range');
+
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
     return ['left','right'].every(side=>{const parts=bars.filter(b=>b.dataset.side===side);
       return parts.every((bar,i)=>!i || Math.abs(side==='right' ? Number(bar.getAttribute('x'))-Number(parts[i-1].getAttribute('x'))-Number(parts[i-1].getAttribute('width')) : Number(bar.getAttribute('x'))+Number(bar.getAttribute('width'))-Number(parts[i-1].getAttribute('x')))<1e-8);});})()`),true,'Segments are contiguous on both mirrored sides');

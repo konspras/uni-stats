@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 
-const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor} = vm.runInNewContext(
-  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor});');
+const {isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor, pyramidCount} = vm.runInNewContext(
+  await readFile(new URL('../web/pyramid.js', import.meta.url), 'utf8') + '\n({isPyramidDataset, pyramidCounterpart, pyramidSides, pyramidLayout, sumPyramidUniversities, pyramidSegments, rankPyramidUniversities, pyramidColor, pyramidCount});');
 const dataset = (id, group, dimensions) => ({id, group, dimensions});
 const catalog = [
   dataset('entrants-gender', 'Bachelor entrants', ['Fachrichtung', 'Geschlecht', 'Hochschule']),
@@ -83,3 +83,15 @@ const missing=uni('Missing',[[999,999],[999,null],[0,0]]), zero=uni('Zero',[[0,0
 assert.equal(rankPyramidUniversities([missing,tieZ,zero,tieA]).map(u=>u.code).join(','),'Alpha,Zulu,Zero,Missing','Ties are alphabetical; unknown gender does not affect rank; missing values go last without a fallback year');
 assert.equal(JSON.stringify(input),before,'Ranking does not change source data');
 console.log('PASS: fixed latest-year combined ranking, ties, missing counts, selected end year and descending-rank shading.');
+
+for(const side of [0,1]) {
+  const shades=[0,9].map(index=>Number(pyramidColor(index,10,side).match(/ ([\d.]+)%\)/)[1]));
+  assert(shades[1]-shades[0]>=70,'Visible universities use a wide lightness range');
+}
+const withZeros=rankPyramidUniversities([first,second,third,zero,missing]);
+assert.equal(withZeros[0].colorCount,3,'Zero and missing latest-year totals do not compress the visible shade range');
+assert.equal(pyramidCount({value:233,raw_value:'233'},false),233);
+assert.equal(pyramidCount({value:81.5,raw_value:'233'},true),233,'Percentage labels remain counts');
+assert.equal(pyramidCount({value:null,raw_value:'0'},true),0,'Preserve known zero counts even when percentage composition is unavailable');
+for(const raw of [null,undefined,'','...']) assert.equal(pyramidCount({value:null,raw_value:raw},true),null);
+console.log('PASS: wider palette, zero-count shade allocation and count labels in percentage mode.');
