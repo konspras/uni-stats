@@ -10,7 +10,7 @@ const names = {Hochschule: 'University', Fachrichtung: 'Subject (detailed)', Fac
 const colors = ['#365bd6', '#db7853', '#278d7a', '#8d5cbe', '#b79b29', '#ca5992', '#3b90b7', '#797564'];
 const ALL = '__derived_all__';
 const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0,
-  view: location.hash === '#pyramid' ? 'pyramid' : 'explorer', views: {}};
+  view: location.hash === '#explorer' ? 'explorer' : 'pyramid', views: {}};
 const date = value => value ? new Date(value).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}) : 'Not supplied';
 const label = code => names[code] || code;
 const number = value => value === null ? '—' : new Intl.NumberFormat(undefined, {maximumFractionDigits: 2}).format(value);
@@ -70,7 +70,7 @@ function defaultDataset() {
   return viewDatasets().find(d => d.id === desired)?.id || viewDatasets()[0]?.id;
 }
 async function switchView() {
-  const view = location.hash === '#pyramid' ? 'pyramid' : 'explorer';
+  const view = location.hash === '#explorer' ? 'explorer' : 'pyramid';
   if (view === state.view || !state.catalog.length) return;
   state.views[state.view] = captureSelection(); state.view = view;
   const saved = state.views[view];

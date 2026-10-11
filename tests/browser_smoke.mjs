@@ -41,6 +41,10 @@ try {
   await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', {width: 1360, height: 1100, deviceScaleFactor: 1, mobile: false});
   await send('Page.navigate', {url: base}); await wait(ready);
+  assert.equal(await evaluate(`state.view`), 'pyramid', 'Root URL defaults to Pyramid');
+  assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
+  assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 884, 'Desktop pyramid is 70% taller');
+  await evaluate(`document.getElementById('explorer-tab').click()`); await wait(ready + ` && state.view==='explorer'`);
   assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 28);
   assert.deepEqual(await evaluate(`state.data.series.map(s=>[s.label,s.points.at(-1).raw_value])`), [['EPFL', '930'], ['ETHZ', '1428']]);
   assert.equal(await evaluate(`document.querySelectorAll('#chart .series-line').length`), 2);
@@ -289,6 +293,7 @@ try {
   await writeFile('/tmp/uni-stats-pyramid-desktop.png',Buffer.from(pyramidDesktop.data,'base64'));
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await wait(`document.documentElement.scrollWidth<=390 && document.querySelector('#chart svg').getAttribute('viewBox').startsWith('0 0 520 ')`);
+  assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 816, 'Mobile pyramid is 70% taller');
   await checkPyramidFit(); await checkSyntheticPyramid();
   const pyramidMetrics=await send('Page.getLayoutMetrics');
   const pyramidMobile=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width:390,height:pyramidMetrics.cssContentSize.height,scale:1}});
@@ -304,6 +309,8 @@ try {
   assert.equal(await evaluate(`state.detail.group`), 'Bachelor entrants', 'Explicitly reject enrolled datasets');
   await send('Page.navigate',{url:base+'/#pyramid'}); await wait(ready + ` && state.view==='pyramid'`);
   assert.equal(await evaluate(`state.detail.group`), 'Bachelor entrants', 'Direct pyramid URL has flow-only defaults');
+  await send('Page.navigate',{url:base+'/#explorer'}); await wait(ready + ` && state.view==='explorer'`);
+  assert.equal(await evaluate(`state.detail.group`), 'Enrolled students', 'Explicit explorer URL retains its own default');
   assert.deepEqual(errors, [], 'Browser console errors');
   console.log('PASS: explorer regression checks, flow-only Pyramid tab, both splits, source-period mapping, all-university sums, degrees and unknown gender, percentage mode, tab state restoration, direct URLs, keyboard inspection and mobile layout.');
 } finally {socket.close();}

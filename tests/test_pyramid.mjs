@@ -27,7 +27,7 @@ assert.equal(sides.sides[1], data.series[1], 'Women always right');
 assert.equal(sides.other[0], data.series[0], 'Unknown gender is not silently merged into a side');
 assert.equal(pyramidSides({compare:'Staatsangehörigkeit (Kategorie)',series:[{label:'Ausland'}, {label:'Schweiz'}]}).sides[0].label, 'Schweiz');
 assert.throws(() => pyramidSides({compare:'Geschlecht',series:[{label:'Mann'}]}), /two pyramid sides/);
-for (const [width,height,narrow] of [[900,520,false],[320,480,true]]) {
+for (const [width,height,narrow] of [[900,884,false],[320,816,true]]) {
   let sparse;
   for (const count of [1,2,46,100]) {
     const layout=pyramidLayout(count,width,height,narrow);

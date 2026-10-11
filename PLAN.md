@@ -79,6 +79,8 @@ The **Pyramid** tab is implemented to the left of **Data explorer**. It is restr
 
 Pyramids always fit their fixed-height plot container without internal scrolling. Vertical bar thickness/spacing adapt to the selected period count; year text is capped in size and labels thin out on dense histories to avoid overlap. All bars remain present and hover/keyboard inspection includes unlabeled years. Horizontal bar lengths retain their count/percentage meaning.
 
+The website opens Pyramid by default; Data explorer remains directly accessible at `/#explorer`. The Pyramid plot height is 884px on desktop and 816px on mobile, 70% larger than the previous container. The scaling and year-label selection algorithm remains unchanged.
+
 The first version passed Python/HTTP tests and real-browser checks of the default values, filter/comparison changes, all 28 datasets and mobile layout. It is available at `http://localhost:8768`. Continue refining and expanding the interface together as the user learns the data. See [docs/FRONTEND.md](docs/FRONTEND.md).
 
 - Browse source datasets as published, using their original dimensions and labels.
