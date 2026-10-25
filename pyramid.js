@@ -114,7 +114,8 @@ function drawPyramid(data) {
   const periodLabels = data.periods.map(p => pyramidPeriodLabel(p));
   const longestLabel = Math.max(...periodLabels.map(p => p.length));
   const totalFontSize = Math.min((narrow ? 10 : 12) / scale, rowHeight * 0.72);
-  const countTexts = sides.flatMap(s => s.points.map(p => number(pyramidCount(p, data.percentage))));
+  const valueLabel = point => number(point.value) + (data.percentage && Number.isFinite(point.value) ? '%' : '');
+  const countTexts = sides.flatMap(s => s.points.map(valueLabel));
   const labelSpace = Math.max(...countTexts.map(t => t.length)) * totalFontSize * 0.65 + 12 / scale;
   const center = width / 2, gap = Math.max(narrow ? 48 : 44, longestLabel * fontSize * 0.65 / 2 + 8 / scale), edge = Math.max(30, labelSpace);
   const half = center - gap - edge;
@@ -152,7 +153,7 @@ function drawPyramid(data) {
       const population = el('section', undefined, 'pyramid-tooltip-population');
       population.setAttribute('aria-label', labels[i]);
       const point = s.points[index], row = el('div', undefined, 'tooltip-row pyramid-tooltip-total');
-      row.append(el('span', labels[i] + ' total'), el('b', point.value === null ? '—' : number(point.value) + (data.percentage ? '%' : '')));
+      row.append(el('span', labels[i] + ' total'), el('b', number(pyramidCount(point, data.percentage))));
       row.title = (data.derived ? 'Derived sum: ' : 'Source value: ') + (point.raw_value ?? 'unavailable'); population.append(row);
       const components = el('div', undefined, 'pyramid-tooltip-components');
       if (data.stacked) {
@@ -160,11 +161,11 @@ function drawPyramid(data) {
         components.setAttribute('role', 'region');
         components.setAttribute('aria-label', labels[i] + ' breakdown');
       }
-      if (data.stacked) for (const segment of pyramidSegments(point, data.percentage)) {
+      if (data.stacked) for (const segment of point.segments || []) {
         if (tooltipSubjects && !tooltipSubjects.has(segment.subject)) continue;
         const part = el('div', undefined, 'tooltip-row pyramid-tooltip-component');
         if (segment.subject) part.dataset.subject = segment.subject; else part.dataset.university = segment.university;
-        part.append(categoryNode('span', data.stackDimension || 'Hochschule', segment.label), el('b', number(segment.value) + (data.percentage ? '%' : ''))); components.append(part);
+        part.append(categoryNode('span', data.stackDimension || 'Hochschule', segment.label), el('b', number(segment.value))); components.append(part);
       }
       population.append(components); populations.append(population);
     }
@@ -200,7 +201,7 @@ function drawPyramid(data) {
             fill:data.stacked ? pyramidColor(segment.colorIndex ?? index, segment.colorCount ?? (data.stackCategories || data.universities).length, i) : colors[i],class:'pyramid-bar',
             'data-side':i ? 'right' : 'left','data-value':segment.value,
             ...(data.stacked ? {[segment.subject ? 'data-subject' : 'data-university']:segment.subject || segment.university} : {})});
-          bar.append(svgNode('title', {}, (segment.label ? categoryFullLabel(data.stackDimension || 'Hochschule', segment.label) + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(segment.value) + (data.percentage ? '%' : '')));
+          bar.append(svgNode('title', {}, (segment.label ? categoryFullLabel(data.stackDimension || 'Hochschule', segment.label) + ', ' : '') + labels[i] + ', ' + data.periods[j] + ': ' + number(pyramidCount(data.stacked ? segment : point, data.percentage))));
           row.append(bar); offset += w;
         }
       }
@@ -208,7 +209,7 @@ function drawPyramid(data) {
       if (count === 0) continue;
       const total = svgNode('text', {x:base+(i ? 1 : -1)*(outside+6/scale),y:y+rowHeight/2,
         'text-anchor':i ? 'start' : 'end','dominant-baseline':'middle',class:'pyramid-total',
-        'data-side':i ? 'right' : 'left','data-count':count ?? ''}, number(count));
+        'data-side':i ? 'right' : 'left','data-count':count ?? ''}, valueLabel(point));
       total.style.fontSize = totalFontSize + 'px';
       total.append(svgNode('title', {}, labels[i] + ', ' + data.periods[j] + ': ' + (count === null ? 'Count unavailable' : number(count))));
       row.append(total);
