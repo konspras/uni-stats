@@ -91,10 +91,10 @@ for(const side of [0,1]) {
 const withZeros=rankPyramidUniversities([first,second,third,zero,missing]);
 assert.equal(withZeros[0].colorCount,3,'Zero and missing latest-year totals do not compress the visible shade range');
 assert.equal(pyramidCount({value:233,raw_value:'233'},false),233);
-assert.equal(pyramidCount({value:81.5,raw_value:'233'},true),233,'Percentage labels remain counts');
+assert.equal(pyramidCount({value:81.5,raw_value:'233'},true),233,'Tooltip counts are recovered from percentage points');
 assert.equal(pyramidCount({value:null,raw_value:'0'},true),0,'Preserve known zero counts even when percentage composition is unavailable');
 for(const raw of [null,undefined,'','...']) assert.equal(pyramidCount({value:null,raw_value:raw},true),null);
-console.log('PASS: wider palette, zero-count shade allocation and count labels in percentage mode.');
+console.log('PASS: wider palette, zero-count shade allocation and absolute tooltip counts in percentage mode.');
 
 assert.equal(pyramidPeriodLabel('2025',2026),'2025 (1)');
 assert.equal(pyramidPeriodLabel('2025/26',2026),'2025/26 (1)','Academic elapsed years use the starting year');

@@ -251,6 +251,12 @@ try {
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>node.firstChild.nodeValue)`),['233','53'],'Unstacked labels show each population count');
   assert.equal(await evaluate(`document.querySelector('.pyramid-row:last-of-type .pyramid-year').textContent`),'2025/26 ('+(new Date().getFullYear()-2025)+')');
   assert.equal(await evaluate(`document.querySelector('.pyramid-total[data-count="0"]')`),null,'Zero count labels are hidden');
+  await evaluate(`$('percentage').click();$('chart').focus();$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>node.firstChild.nodeValue)`),
+    await evaluate(`pyramidSides(state.plotData).sides.map(s=>number(s.points.at(-1).value)+'%')`),'Unstacked data labels show percentages');
+  assert.deepEqual(await evaluate(`(()=>{$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}));return [...document.querySelectorAll('.pyramid-tooltip-total b')].map(node=>node.textContent);})()`),['233','53'],'Unstacked percentage tooltips show counts');
+  await evaluate(`$('percentage').click()`);
+
   assert.equal(await evaluate(`(()=>{const source=state.plotData,modified=structuredClone(source);modified.series[0].points.at(-1).value=0;modified.series[0].points.at(-1).raw_value='0';drawPyramid(modified);const row=document.querySelector('.pyramid-row:last-of-type');const valid=!row.querySelector('.pyramid-total[data-side="left"]') && row.querySelector('.pyramid-total[data-side="right"]').dataset.count==='53';drawPyramid(source);return valid;})()`),true,'A zero total hides only its own label');
 
 
@@ -315,9 +321,17 @@ try {
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
     return ['left','right'].every((side,i)=>Math.abs(bars.filter(b=>b.dataset.side===side).reduce((sum,b)=>sum+Number(b.dataset.value),0)-pyramidSides(state.plotData).sides[i].points.at(-1).value)<1e-9);})()`), true);
   await evaluate(`document.getElementById('percentage').click()`);
-  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>Number(node.dataset.count))`),subsetTotals,'Stacked percentage bars retain original count labels');
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>Number(node.dataset.count))`),subsetTotals,'Stacked percentage bars retain source count metadata');
   assert.equal(await evaluate(`(()=>{const bars=[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-bar')];
     return Math.abs(bars.reduce((sum,b)=>sum+Number(b.dataset.value),0)-100)<1e-9;})()`), true);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.pyramid-row:last-of-type .pyramid-total')].map(node=>node.firstChild.nodeValue)`),
+    await evaluate(`pyramidSides(state.plotData).sides.map(s=>number(s.points.at(-1).value)+'%')`),'Percentage labels match bar shares');
+  await evaluate(`$('chart').focus();$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
+  assert.deepEqual(await evaluate(`(()=>{$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}));return [...document.querySelectorAll('.pyramid-tooltip-total b')].map(node=>node.textContent);})()`),
+    await evaluate(`pyramidSides(state.data).sides.map(s=>number(s.points.at(-1).value))`),'Percentage tooltip totals show absolute counts');
+  assert.deepEqual(await evaluate(`(()=>{$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}));return [...document.querySelectorAll('.pyramid-tooltip-population')].map(group=>[...group.querySelectorAll('.pyramid-tooltip-component b')].map(node=>node.textContent));})()`),
+    await evaluate(`pyramidSides(state.data).sides.map(s=>s.points.at(-1).segments.map(p=>number(p.value)))`),'Percentage university tooltip breakdowns show absolute counts');
+
   assert.deepEqual(await evaluate(`state.data.series.map(s=>s.points.at(-1).value)`), subsetTotals, 'Display transforms preserve source counts');
   const stackedScreenshot=await send('Page.captureScreenshot',{format:'png'});
   await writeFile('/tmp/uni-stats-pyramid-stacked.png',Buffer.from(stackedScreenshot.data,'base64'));
@@ -473,6 +487,12 @@ try {
     }
     await evaluate(`$('percentage').click()`); await wait(ready);
     assert.equal(await evaluate(`state.plotData.percentage`),true,'Subject stacks support percentages');
+    if (view==='pyramid') {
+      await evaluate(`$('chart').focus();$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
+      assert.deepEqual(await evaluate(`(()=>{$('chart').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}));return [...document.querySelectorAll('.pyramid-tooltip-population')].map(group=>[...group.querySelectorAll('.pyramid-tooltip-component b')].map(node=>node.textContent));})()`),
+        await evaluate(`pyramidSides(state.plotData).sides.map(s=>s.points.at(-1).segments.filter(p=>pyramidTooltipSubjects(state.plotData).has(p.subject)).map(p=>number(p.value)))`),'Percentage subject tooltips retain absolute counts and ordering');
+    }
+
     await evaluate(`$('stack-subjects').click()`); await wait(ready + ` && !state.data.breakdown`);
     assert.equal(await evaluate(`$('stack-subjects').checked`),false);
   }

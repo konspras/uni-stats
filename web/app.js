@@ -377,7 +377,7 @@ function renderResults() {
     ': the value in ' + data.periods[0] + ' is zero or missing. Select another start year.' : '';
   $('percentage-note').hidden = !data.percentage_missing;
   $('percentage-note').textContent = data.percentage_missing ? 'Percentage gaps: ' + data.percentage_missing + ' periods have missing or negative values, or a zero total.' : '';
-  $('value-note').textContent = data.percentage ? (state.view === 'pyramid' ? 'Bar labels show counts. ' : '') + '100% = the sum of the selected series in each period.' : data.normalized ? data.periods[0] + ' = 100 for each series. Missing values remain gaps.' : 'Missing values are gaps; source zeros remain zero.';
+  $('value-note').textContent = data.percentage ? (state.view === 'pyramid' ? 'Bar labels show percentages; tooltips show counts. ' : '') + '100% = the sum of the selected series in each period.' : data.normalized ? data.periods[0] + ' = 100 for each series. Missing values remain gaps.' : 'Missing values are gaps; source zeros remain zero.';
   $('aggregation-note').textContent = data.derived ? 'Derived sum across selected categories and universities. Missing components leave gaps.' : 'Values from the selected source categories.';
   const valueKind = data.derived ? 'Derived sum' : 'Source value';
   $('table-description').textContent = data.percentage ? 'Share of the selected series total in each period. Hover for the original value.' : data.normalized ? 'Index: ' + data.periods[0] + ' = 100. Hover a value for its ' + valueKind.toLowerCase() + '.' : data.derived ? 'Derived sums of source values.' : 'The values exactly as published.';
