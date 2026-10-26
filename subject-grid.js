@@ -127,7 +127,6 @@ class SubjectGrid {
     this.node('left-label').textContent=model.labels[0];this.node('right-label').textContent=model.labels[1];
     this.node('scale').textContent='Shared scale: 0–'+this.number(model.maximum)+(model.percentage?'%':'')+' per side';
     this.node('unknown').hidden=!model.unknown;
-    this.node('percentage-note').hidden=!model.percentage || !model.percentageMissing;
     this.observer?.disconnect();const root=this.node('grid');root.replaceChildren();
     if(typeof IntersectionObserver!=='undefined')this.observer=new IntersectionObserver(entries=>{if(!this.active)return;for(const entry of entries)if(entry.isIntersecting){entry.target.mountChart();this.observer.unobserve(entry.target);}},{rootMargin:'400px'});
     for(const card of model.cards) {

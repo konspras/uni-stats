@@ -49,4 +49,4 @@
 @media(max-width:720px){.subjects-controls{padding:15px;gap:12px}.subjects-controls .field{flex:1 1 135px;min-width:0}.subjects-time-range{min-width:0;max-width:none;flex:1 0 100%;margin-left:0}.subjects-grid{grid-template-columns:1fr;gap:12px}.subject-card{padding:12px 8px 8px}.subject-card-heading{gap:10px;min-height:66px}.subject-card-total strong{font-size:15px}.subject-card h2{font-size:11px}.subject-mini-chart{height:260px}.subjects-info{font-size:10px}.subjects-legend{gap:10px}.tabs{gap:22px}.subject-card-title p{font-size:9px}}
 @media(max-width:380px){.subjects-grid{grid-template-columns:1fr}.subject-card-heading{min-height:62px}.subject-mini-chart{height:260px}}
 
-.subjects-controls .normalize-toggle{margin:0;white-space:nowrap}#subjects-percentage-note{margin:0 2px 12px}
+.subjects-controls .normalize-toggle{margin:0;white-space:nowrap}
