@@ -41,7 +41,8 @@ const gridReady=`typeof subjectGrid!=='undefined' && subjectGrid?.active && subj
 try {
   await send('Runtime.enable');await send('Log.enable');await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
-  let start=performance.now();await send('Page.navigate',{url:base+'#subjects'});await wait(gridReady);
+  await send('Page.navigate',{url:'about:blank'});
+  let start=performance.now();await send('Page.navigate',{url:base});await wait(gridReady);
   const initial=performance.now()-start;
   if (await evaluate('DataProvider.backend')) {
     await select('data-mode','csv');await wait(gridReady+` && DataProvider.mode==='csv'`);
@@ -52,6 +53,7 @@ try {
   }
 
   assert.equal(await evaluate('state.view'),'subjects');
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tabs a')].map(a=>a.textContent)`),['Subjects','Pyramid','Data explorer'],'Tab order is Subjects, Pyramid, Data explorer');
   assert.equal(await evaluate(`$('subjects-tab').getAttribute('aria-current')`),'page');
   assert.equal(await evaluate(`document.querySelector('.explorer-layout').hidden`),true,'Grid has no sidebar');
   assert.equal(await evaluate(`document.querySelectorAll('.subject-card').length`),77,'Every detailed subject has a card');

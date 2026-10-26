@@ -40,8 +40,9 @@ async function select(id, value) {await evaluate(`{const node = document.getElem
 try {
   await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', {width: 1360, height: 1100, deviceScaleFactor: 1, mobile: false});
+  await send('Page.navigate',{url:'about:blank'});
   const fresh = await send('Page.addScriptToEvaluateOnNewDocument',{source:"sessionStorage.removeItem('uni-stats-data-mode')"});
-  await send('Page.navigate', {url: base}); await wait(ready);
+  await send('Page.navigate', {url:new URL('#pyramid',base).href}); await wait(ready);
   await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:fresh.identifier});
   assert.equal(await evaluate(`DataProvider.mode`),'csv','New tabs default to static CSVs');
   assert.equal(await evaluate(`$('snapshot').disabled && !$('data-mode-field').hidden`),true);
@@ -52,7 +53,7 @@ try {
   await select('data-mode','csv');await wait(ready + ` && DataProvider.mode==='csv'`);
   assert.deepEqual(await evaluate(`state.data`),originalCSV,'Switching back preserves the selection');
   await select('data-mode','database');await wait(ready + ` && DataProvider.mode==='database'`);
-  assert.equal(await evaluate(`state.view`), 'pyramid', 'Root URL defaults to Pyramid');
+  assert.equal(await evaluate(`state.view`), 'pyramid', 'Explicit pyramid URL opens Pyramid');
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 884, 'Desktop pyramid is 70% taller');
   assert.equal(await evaluate(`document.querySelector('#filters select[data-dimension="Fachrichtung"] option:checked').textContent`),'Humanmedizin (Human Medicine)');
@@ -242,7 +243,7 @@ try {
   // Pyramid is a separate tab, with its own selection state and a flow-only catalog.
   await send('Emulation.setDeviceMetricsOverride', {width:1360,height:1100,deviceScaleFactor:1,mobile:false});
   await evaluate(`document.getElementById('pyramid-tab').click()`); await wait(ready + ` && state.view==='pyramid' && state.data.dataset==='px-x-1502040100_123'`);
-  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tabs a')].map(a=>a.textContent)`), ['Pyramid','Subjects','Data explorer']);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tabs a')].map(a=>a.textContent)`), ['Subjects','Pyramid','Data explorer']);
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 6);
   assert.equal(await evaluate(`viewDatasets().every(d=>['Bachelor entrants','Degrees'].includes(d.group))`), true);

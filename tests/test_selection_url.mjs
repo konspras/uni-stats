@@ -10,7 +10,7 @@ const selection={dataset:detail.id,snapshot:99,compare:'Geschlecht',values:['m',
 const hash=URLState.write(selection,detail), restored=URLState.restore(URLState.read(hash),detail);
 assert(hash.startsWith('#pyramid?v=1&'));
 assert(!hash.includes('snapshot'));
-assert.equal(URLState.view(hash),'pyramid');assert.equal(URLState.view('#explorer'),'explorer');assert.equal(URLState.view('#subjects'),'subjects');
+assert.equal(URLState.view(hash),'pyramid');assert.equal(URLState.view('#explorer'),'explorer');assert.equal(URLState.view('#subjects'),'subjects');assert.equal(URLState.view(''),'subjects');assert.equal(URLState.view('#pyramid'),'pyramid');
 assert.equal(URLState.read('#pyramid'),null);assert.equal(URLState.read('#explorer'),null);
 for(const key of ['dataset','compare','universities','measure','fromLabel','toLabel','percentage','stacked','subjectStacked']) assert.deepEqual(restored[key],selection[key]);
 assert.deepEqual(restored.values,['m','f','unknown']);assert.deepEqual(restored.filters,selection.filters);

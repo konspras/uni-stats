@@ -45,7 +45,8 @@ try {
   await send('Emulation.setDeviceMetricsOverride',{width:1360,height:1100,deviceScaleFactor:1,mobile:false});
   await send('Network.setCacheDisabled',{cacheDisabled:true});
   let start=performance.now();
-  await send('Page.navigate',{url:base}); await wait(ready);
+  await send('Page.navigate',{url:'about:blank'});
+  await send('Page.navigate',{url:new URL('#pyramid',base).href}); await wait(ready);
   const initial=performance.now()-start;
   assert.equal(await evaluate(`DataProvider.mode`),'csv');
   assert.equal(await evaluate(`DataProvider.backend`),false);

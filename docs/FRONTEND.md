@@ -1,6 +1,6 @@
 # University statistics frontend
 
-The frontend has a **Pyramid** tab to the left of **Data explorer**, served by `server.py` on port **8768**. Chart requests read SQLite directly. The installed service also runs a background collection worker every Sunday at 15:00 Europe/Zurich. No web framework, build step, charting dependency, external font or CDN is required. The root URL opens Pyramid by default; `/#explorer` opens Data explorer explicitly. Each tab retains its own selection and display mode when switching.
+The frontend has **Subjects**, **Pyramid**, and **Data explorer** tabs in that order, served by `server.py` on port **8768**. Chart requests read SQLite directly. The installed service also runs a background collection worker every Sunday at 15:00 Europe/Zurich. No web framework, build step, charting dependency, external font or CDN is required. The root URL opens Subjects by default; `/#explorer` opens Data explorer explicitly. Each tab retains its own selection and display mode when switching.
 
 University labels show the BFS abbreviation plus a full institution name, capped at 40 characters including `...`; hover reveals the complete label. Search matches the abbreviation and full name. This presentation mapping leaves source metadata, dataset-local codes, stored observations and API series labels unchanged. Names are based on the [BFS university list](https://www.swissstats.bfs.admin.ch/data/webviewer/appId/ch.admin.bfs.swissstat/article/issue241517992200-09/package), [BFS finance table footnotes](https://www.pxweb.bfs.admin.ch/pxweb/de/px-x-1506030100_211/-/px-x-1506030100_211.px/) and [BFS historical abbreviations](https://www.bfs.admin.ch/bfsstatic/dam/assets/350858/master). Unknown labels remain unchanged.
 
@@ -140,7 +140,7 @@ Filter edits replace the current history entry without reloading or adding an en
 
 ## Subject pyramid grid
 
-The **Subjects** tab (`#subjects`) places all 77 detailed subjects in a responsive grid, summed across all universities. A horizontal control row selects Bachelor entrants or degrees, gender or nationality, and degree qualification (Bachelor, Lizenziate/Diplome, Master, Doktorat, or an explicit derived sum of all qualifications). The shared two-handle year slider slices already-loaded observations without another query. Pyramid remains the default landing tab.
+The **Subjects** tab (`#subjects`) places all 77 detailed subjects in a responsive grid, summed across all universities. A horizontal control row selects Bachelor entrants or degrees, gender or nationality, and degree qualification (Bachelor, Lizenziate/Diplome, Master, Doktorat, or an explicit derived sum of all qualifications). The shared two-handle year slider slices already-loaded observations without another query. Subjects is the default landing tab, followed by Pyramid and Data explorer.
 
 Each card shows its latest displayed-year total and a compact count pyramid. Cards sort by that total descending; ties use German subject names, and incomplete totals sort last. Totals include unknown categories; the two visible sides remain men/women or Swiss/foreign nationals. A note identifies unknown categories when present. Missing observations remain gaps and incomplete totals display a dash; zero subjects remain in the grid.
 

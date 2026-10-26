@@ -52,7 +52,8 @@ async function reloadAndCompare() {
 try {
   await send('Runtime.enable');await send('Log.enable');await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride',{width:1360,height:1100,deviceScaleFactor:1,mobile:false});
-  await send('Page.navigate',{url:base});await wait(ready);
+  await send('Page.navigate',{url:'about:blank'});
+  await send('Page.navigate',{url:new URL('#pyramid',base).href});await wait(ready);
   assert.equal(await evaluate(`selectionLabel('Fachrichtung',state.filters.Fachrichtung)`),'Humanmedizin','Landing subject is Human Medicine');
   assert.deepEqual(await evaluate(`state.universities`),await evaluate(`variable('Hochschule').values`),'Landing selects all universities');
   assert.equal(await evaluate(`new URLSearchParams(location.hash.split('?')[1]).get('universities')`),'all');
