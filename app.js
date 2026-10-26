@@ -44,7 +44,7 @@ function categoryNode(tag, dimension, text) {
 }
 const ALL = '__derived_all__';
 const state = {catalog: [], detail: null, filters: {}, compare: '', values: [], data: null, generation: 0, plotSequence: 0,
-  universities: [], subjectTranslations: {}, view: location.hash === '#explorer' ? 'explorer' : 'pyramid', views: {}};
+  universities: [], subjectTranslations: {}, view: SelectionURL.view(location.hash), views: {}};
 const date = value => value ? new Date(value).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}) : 'Not supplied';
 const label = code => names[code] || code;
 const number = value => value === null ? '—' : new Intl.NumberFormat(undefined, {maximumFractionDigits: 2}).format(value);
@@ -117,15 +117,38 @@ function defaultDataset() {
   const desired = state.view === 'pyramid' ? 'px-x-1502040100_123' : 'px-x-1502040100_105';
   return viewDatasets().find(d => d.id === desired)?.id || viewDatasets()[0]?.id;
 }
+function updateSelectionURL() {
+  if (state.view !== 'pyramid' || !state.detail) return;
+  const hash = SelectionURL.write(captureSelection(),state.detail);
+  if (location.hash !== hash) history.replaceState(null,'',location.pathname+location.search+hash);
+}
+function selectionError(message) {
+  ++state.generation; ++state.plotSequence;
+  state.datasetController?.abort(); state.plotController?.abort();
+  state.detail = null; state.data = null; state.plotData = null;
+  $('categories').replaceChildren(); $('filters').replaceChildren();
+  for (const id of ['compare','measure','from','to','snapshot','select-all','clear-all','category-search','split-gender','split-nationality']) $(id).disabled = true;
+  error(message); $('chart').replaceChildren(el('div','This shared pyramid could not be loaded. Use Reset view to start again.','chart-message'));
+  $('chart').setAttribute('aria-busy','false'); $('legend').replaceChildren();
+  for (const tag of ['thead','tbody']) $('values-table').querySelector(tag).replaceChildren();
+}
+async function loadView(saved) {
+  try {
+    const shared = state.view === 'pyramid' ? SelectionURL.read(location.hash) : null;
+    if (shared && !viewDatasets().some(d=>d.id===shared.dataset)) throw Error('The dataset in this shared pyramid is unavailable. Use Reset view to start again.');
+    const restore = shared ? null : saved;
+    $('normalize').checked = state.view === 'explorer' && Boolean(restore?.normalized);
+    $('percentage').checked = Boolean(restore?.percentage);
+    $('stack-universities').checked = Boolean(restore?.stacked); $('stack-subjects').checked = Boolean(restore?.subjectStacked);
+    await loadDataset(shared?.dataset || restore?.dataset || defaultDataset(),shared ? undefined : restore?.snapshot,{restore,shared});
+  } catch(e) {selectionError(e.message);}
+}
 async function switchView() {
-  const view = location.hash === '#explorer' ? 'explorer' : 'pyramid';
-  if (view === state.view || !state.catalog.length) return;
-  state.views[state.view] = captureSelection(); state.view = view;
-  const saved = state.views[view];
-  $('normalize').checked = view === 'explorer' && Boolean(saved?.normalized);
-  $('percentage').checked = Boolean(saved?.percentage);
-  $('stack-universities').checked = Boolean(saved?.stacked); $('stack-subjects').checked = Boolean(saved?.subjectStacked);
-  renderView(); await loadDataset(saved?.dataset || defaultDataset(), saved?.snapshot, {restore:saved});
+  if (!state.catalog.length) return;
+  const view = SelectionURL.view(location.hash);
+  if (view === state.view && !location.hash.startsWith('#pyramid?')) {updateSelectionURL();return;}
+  if (view !== state.view) {state.views[state.view] = captureSelection(); state.view = view;}
+  renderView(); await loadView(state.views[view]);
 }
 function renderSplit() {
   if (state.view !== 'pyramid' || !state.detail) return;
@@ -235,6 +258,12 @@ async function loadDataset(id, snapshotId, options = {}) {
   try {
     const detail = await api('/api/dataset?id=' + encodeURIComponent(id) + (snapshotId ? '&snapshot=' + snapshotId : ''), state.datasetController.signal);
     if (generation !== state.generation) return;
+    if (options.shared) {
+      const restored = SelectionURL.restore(options.shared,detail);
+      options = {...options,restore:restored};
+      $('normalize').checked = false; $('percentage').checked = restored.percentage;
+      $('stack-universities').checked = restored.stacked; $('stack-subjects').checked = restored.subjectStacked;
+    }
     state.detail = detail; state.filters = {};
     const untranslated = [...new Set(detail.metadata.variables.filter(v => ['Fachrichtung','Fachbereich'].includes(v.code))
       .flatMap(v => v.valueTexts).filter(text => !state.subjectTranslations[text]))];
@@ -302,7 +331,7 @@ async function loadDataset(id, snapshotId, options = {}) {
 }
 async function updatePlot() {
   if (!state.detail) return;
-  syncSubjectMode();
+  syncSubjectMode(); updateSelectionURL();
   const sequence = ++state.plotSequence; state.plotController?.abort(); state.plotController = new AbortController();
   $('chart').setAttribute('aria-busy', 'true'); error('');
   if (!(state.view === 'pyramid' ? state.universities : state.values).length) {
@@ -348,6 +377,7 @@ function renderResults() {
     data.stacked = $('stack-subjects').checked || $('stack-universities').checked && data.universities.length > 1;
     syncSubjectMode();
   }
+  updateSelectionURL();
   state.plotData = data;
   $('plot-group').textContent = detail.group.toUpperCase();
   const subject = Object.entries(state.filters).find(([code]) => ['Fachrichtung', 'Fachbereich'].includes(code));
@@ -508,7 +538,7 @@ function changeRange(id, immediately = false) {
   if (!state.detail) return;
   if (id === 'from') $('from').value = Math.min(Number($('from').value), Number($('to').value));
   else $('to').value = Math.max(Number($('to').value), Number($('from').value));
-  renderRange(); clearTimeout(rangeTimer);
+  renderRange(); updateSelectionURL(); clearTimeout(rangeTimer);
   if (immediately) updatePlot(); else rangeTimer = setTimeout(updatePlot, 150);
 }
 for (const id of ['from', 'to']) {
@@ -547,7 +577,7 @@ async function init() {
     const [result, translations] = await Promise.all([api('/api/datasets'), api('/subject-translations.json')]);
     state.subjectTranslations = translations.translations; state.catalog = result.datasets; $('dataset-count').textContent = result.datasets.length + ' datasets';
     if (!result.datasets.length) throw new Error('No collected datasets are available yet.');
-    renderView(); $('dataset').disabled = false; await loadDataset(defaultDataset());
+    renderView(); $('dataset').disabled = false; await loadView();
   } catch (e) {error(e.message); $('chart').replaceChildren(el('div', 'Data is currently unavailable.', 'chart-message')); $('chart').setAttribute('aria-busy', 'false');}
 }
 init();
