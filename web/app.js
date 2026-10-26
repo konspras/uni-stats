@@ -86,6 +86,7 @@ function viewDatasets() {return state.catalog.filter(d => state.view !== 'pyrami
 function renderView() {
   const pyramid = state.view === 'pyramid';
   $('view-title').textContent = pyramid ? 'Pyramid' : 'Data explorer';
+  $('plot-context').hidden = pyramid;
   document.title = 'UniStats · ' + $('view-title').textContent;
   for (const view of ['pyramid', 'explorer']) {
     const active = view === state.view, tab = $(view + '-tab');
@@ -359,7 +360,7 @@ function renderEmptySelection() {
   chart.onkeydown = null; chart.onblur = null; chart.onpointerleave = null; chart.onfocusout = null; chart.removeAttribute('tabindex'); chart.removeAttribute('aria-label');
   chart.replaceChildren(el('div', state.view === 'pyramid' ? 'Select a university to display the pyramid.' : 'Select a category to display a series.', 'chart-message'));
   chart.setAttribute('aria-busy', 'false');
-  $('plot-context').textContent = summary(); $('period-badge').textContent = '';
+  $('plot-context').textContent = state.view === 'pyramid' ? '' : summary(); $('period-badge').textContent = '';
   $('legend').replaceChildren(); $('table-count').textContent = '0 selected';
   for (const tag of ['thead', 'tbody']) $('values-table').querySelector(tag).replaceChildren();
   $('table-description').textContent = 'No categories selected.';
@@ -382,7 +383,7 @@ function renderResults() {
   $('plot-group').textContent = detail.group.toUpperCase();
   const subject = Object.entries(state.filters).find(([code]) => ['Fachrichtung', 'Fachbereich'].includes(code));
   $('plot-title').textContent = subject ? categoryDisplayLabel(subject[0], selectionLabel(...subject)) : label(state.compare) + ' comparison';
-  $('plot-context').textContent = summary();
+  $('plot-context').textContent = state.view === 'pyramid' ? '' : summary();
   $('period-badge').textContent = data.periods[0] + ' — ' + data.periods.at(-1);
   $('legend').replaceChildren(); for (const [i, s] of data.series.entries()) {
     if (state.view === 'pyramid' && !pyramidSides(data).sides.includes(s)) continue;
