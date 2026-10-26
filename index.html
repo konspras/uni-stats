@@ -33,6 +33,7 @@
         <label class="field">Metric<select id="subjects-metric"><option>Bachelor entrants</option><option>Degrees</option></select></label>
         <label class="field">Split by<select id="subjects-split"><option value="Geschlecht">Gender</option><option value="Staatsangehörigkeit (Kategorie)">Nationality</option></select></label>
         <label id="subjects-qualification-field" class="field" hidden>Qualification<select id="subjects-qualification" disabled></select></label>
+        <label class="normalize-toggle"><input id="subjects-percentage" type="checkbox">Percentage of total</label>
         <div class="time-range subjects-time-range">
           <div class="range-labels"><label for="subjects-from">From <output id="subjects-from-label">—</output></label><label for="subjects-to">To <output id="subjects-to-label">—</output></label></div>
           <div id="subjects-slider" class="period-slider"><div class="range-track"><div id="subjects-range-fill" class="range-fill"></div></div><input id="subjects-from" type="range" min="0" max="0" value="0" step="1" aria-label="Subject grid start period" disabled><input id="subjects-to" type="range" min="0" max="0" value="0" step="1" aria-label="Subject grid end period" disabled></div>
@@ -40,6 +41,7 @@
       </div>
       <div class="subjects-info"><span id="subjects-count"></span><div class="subjects-legend"><span><i class="legend-dot c0"></i><span id="subjects-left-label">Men</span></span><span><i class="legend-dot c1"></i><span id="subjects-right-label">Women</span></span><span id="subjects-scale"></span></div></div>
       <p id="subjects-unknown" class="helper" hidden>Unknown categories are included in subject totals but are not assigned to either side.</p>
+      <p id="subjects-percentage-note" class="helper" role="status" hidden>Years with missing or negative values, or a zero total, are left blank.</p>
       <div id="subjects-grid" class="subjects-grid" aria-busy="false"></div>
     </section>
     <div class="explorer-layout" hidden>

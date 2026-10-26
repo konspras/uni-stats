@@ -1,21 +1,22 @@
 'use strict';
 
 // Build one complete time series per subject; preserve missing/unknown categories.
-function subjectGridModel(data) {
+function subjectGridModel(data, percentage=false) {
   const {sides,other,labels}=pyramidSides(data);
   const subjects=data.series[0]?.points[0]?.subject_segments || [];
   const cards=subjects.map((subject,index)=>{
     const series=data.series.map(s=>({...s,points:s.points.map(p=>({period:p.period,period_code:p.period_code,...p.subject_segments[index]}))}));
     const values=series.map(s=>s.points.at(-1).value);
     const total=values.every(v=>Number.isFinite(v)&&v>=0) ? values.reduce((a,b)=>a+b,0) : null;
-    return {code:subject.code,label:subject.label,series,total};
+    const shares=percentage ? percentageSeries({...data,series}):null;
+    return {code:subject.code,label:subject.label,series,total,plotSeries:shares?.series || series,percentageMissing:shares?.percentage_missing || 0};
   }).sort((a,b)=>(b.total ?? -1)-(a.total ?? -1)||a.label.localeCompare(b.label,'de'));
   let maximum=0;
   for(const card of cards) for(const side of sides) for(const point of card.series.find(s=>s.code===side.code).points) {
     if(Number.isFinite(point.value)&&point.value>=0) maximum=Math.max(maximum,point.value);
   }
   const magnitude=maximum ? 10**Math.floor(Math.log10(maximum)) : 1;
-  return {cards,maximum:maximum ? Math.ceil(maximum/magnitude)*magnitude:1,labels,sideCodes:sides.map(s=>s.code),
+  return {cards,percentage,percentageMissing:cards.reduce((sum,c)=>sum+c.percentageMissing,0),maximum:percentage ? 100:maximum ? Math.ceil(maximum/magnitude)*magnitude:1,labels,sideCodes:sides.map(s=>s.code),
     unknown:other.some(s=>s.points.some(p=>p.value===null||p.value!==0)),periods:data.periods};
 }
 
@@ -29,12 +30,13 @@ class SubjectGrid {
       this.node(id).addEventListener('input',()=>this.rangeChanged(id));
       this.node(id).addEventListener('change',()=>this.rangeChanged(id,true));
     }
+    this.node('percentage').addEventListener('change',()=>this.render());
     this.node('slider').addEventListener('pointerdown',event=>this.dragRange(event));
   }
   async show() {this.active=true;if(this.needsLoad) await this.load();else this.render();}
   hide() {this.active=false;if(this.loading)this.needsLoad=true;this.sequence++;this.controller?.abort();this.observer?.disconnect();clearTimeout(this.rangeTimer);}
   async reload() {this.active=true;this.needsLoad=true;await this.load();}
-  async reset() {this.node('metric').value='Bachelor entrants';this.node('split').value='Geschlecht';this.detail=null;this.qualification='Bachelor';await this.load();}
+  async reset() {this.node('percentage').checked=false;this.node('metric').value='Bachelor entrants';this.node('split').value='Geschlecht';this.detail=null;this.qualification='Bachelor';await this.load();}
   async load() {
     const sequence=++this.sequence;this.controller?.abort();this.controller=new AbortController();
     this.loading=true;this.needsLoad=true;this.data=null;this.model=null;this.onError('');this.observer?.disconnect();
@@ -120,11 +122,12 @@ class SubjectGrid {
     if(!this.data||!this.active)return;
     const first=Number(this.node('from').value),last=Number(this.node('to').value);
     const selected={...this.data,periods:this.data.periods.slice(first,last+1),series:this.data.series.map(s=>({...s,points:s.points.slice(first,last+1)}))};
-    const model=subjectGridModel(selected);this.model=model;
+    const model=subjectGridModel(selected,this.node('percentage').checked);this.model=model;
     this.node('count').textContent=model.cards.length+' subjects · all universities · ranked by '+model.periods.at(-1)+' total';
     this.node('left-label').textContent=model.labels[0];this.node('right-label').textContent=model.labels[1];
-    this.node('scale').textContent='Shared scale: 0–'+this.number(model.maximum)+' per side';
+    this.node('scale').textContent='Shared scale: 0–'+this.number(model.maximum)+(model.percentage?'%':'')+' per side';
     this.node('unknown').hidden=!model.unknown;
+    this.node('percentage-note').hidden=!model.percentage || !model.percentageMissing;
     this.observer?.disconnect();const root=this.node('grid');root.replaceChildren();
     if(typeof IntersectionObserver!=='undefined')this.observer=new IntersectionObserver(entries=>{if(!this.active)return;for(const entry of entries)if(entry.isIntersecting){entry.target.mountChart();this.observer.unobserve(entry.target);}},{rootMargin:'400px'});
     for(const card of model.cards) {
@@ -136,7 +139,7 @@ class SubjectGrid {
     const link=this.element('a',undefined,'subject-card');link.dataset.subject=card.code;link.dataset.total=card.total ?? '';
     const universities=this.detail.metadata.variables.find(v=>v.code==='Hochschule').values;
     const selection={dataset:this.detail.id,compare:this.data.compare,universities,filters:{...this.filters,Fachrichtung:card.code},measure:this.measure,
-      fromLabel:model.periods[0],toLabel:model.periods.at(-1),percentage:false,stacked:false,subjectStacked:false};
+      fromLabel:model.periods[0],toLabel:model.periods.at(-1),percentage:model.percentage,stacked:false,subjectStacked:false};
     link.href=SelectionURL.write(selection,this.detail);
     link.addEventListener('click',event=>{if(event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey)requestAnimationFrame(()=>{if(location.hash.startsWith('#pyramid?'))window.scrollTo({top:0,left:0,behavior:'instant'});});});
     const english=this.translate(card.label),full=card.label+(english?' ('+english+')':'');
@@ -164,8 +167,8 @@ class SubjectGrid {
     for(const [i,code]of model.sideCodes.entries()) {
       const base=center+(i?gap:-gap),direction=i?1:-1;
       for(const fraction of [0,.5,1]){const x=base+direction*half*fraction;chart.append(svg('line',{x1:x,x2:x,y1:top,y2:height-bottom,class:'subject-grid-line'}));}
-      chart.append(svg('text',{x:base+direction*half,y:12,'text-anchor':i?'end':'start',class:'subject-mini-axis'},this.number(model.maximum)));
-      const points=card.series.find(s=>s.code===code).points;
+      chart.append(svg('text',{x:base+direction*half,y:12,'text-anchor':i?'end':'start',class:'subject-mini-axis'},this.number(model.maximum)+(model.percentage?'%':'')));
+      const points=card.plotSeries.find(s=>s.code===code).points;
       for(let j=0;j<points.length;j++)if(Number.isFinite(points[j].value)&&points[j].value>0){const w=points[j].value/model.maximum*half;
         chart.append(svg('rect',{x:i?base:base-w,y:top+j*row+row*.08,width:w,height:row*.84,fill:i?'#db7853':'#365bd6','data-side':i?'right':'left','data-value':points[j].value,class:'subject-mini-bar'}));}
     }
