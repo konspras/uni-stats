@@ -53,6 +53,10 @@ try {
   await send('Runtime.enable');await send('Log.enable');await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride',{width:1360,height:1100,deviceScaleFactor:1,mobile:false});
   await send('Page.navigate',{url:base});await wait(ready);
+  assert.equal(await evaluate(`selectionLabel('Fachrichtung',state.filters.Fachrichtung)`),'Humanmedizin','Landing subject is Human Medicine');
+  assert.deepEqual(await evaluate(`state.universities`),await evaluate(`variable('Hochschule').values`),'Landing selects all universities');
+  assert.equal(await evaluate(`new URLSearchParams(location.hash.split('?')[1]).get('universities')`),'all');
+
   await evaluate(`{const node=document.querySelector('#filters select[data-dimension="Fachrichtung"]');node.value=categories(variable('Fachrichtung')).find(c=>c.text==='Psychologie').code;node.dispatchEvent(new Event('change'));}`);await wait(ready);
   await evaluate(`setUniversities(categories(variable('Hochschule')).filter(c=>['ETHZ','LS'].includes(c.text)).map(c=>c.code));renderCategories();updatePlot()`);await wait(ready);
   await evaluate(`$('from').value=timeVariable().valueTexts.indexOf('2007/08');changeRange('from',true)`);await wait(ready);
@@ -96,6 +100,9 @@ try {
   assert.equal(await evaluate(`$('error').textContent.includes('unsupported version')`),true);
   await evaluate(`$('reset').click()`);await wait(ready);
   assert.equal(await evaluate(`$('error').hidden`),true,'Reset recovers from an invalid shared link');
+  assert.equal(await evaluate(`selectionLabel('Fachrichtung',state.filters.Fachrichtung)`),'Humanmedizin','Reset restores the Human Medicine default');
+  assert.deepEqual(await evaluate(`state.universities`),await evaluate(`variable('Hochschule').values`),'Reset restores all universities');
+
   assert.deepEqual(errors,[],'No browser errors');
   console.log('PASS: static public links restore dataset, split, all filters, year range, universities, All/empty selections, percentages, university/subject stacks, tab state, Back/Forward, and reject invalid links.');
 } finally {socket.close();}

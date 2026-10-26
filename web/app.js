@@ -169,7 +169,7 @@ function selectionLabel(code, value) {
   const v = variable(code); return v.valueTexts[v.values.indexOf(value)];
 }
 function preferred(v) {
-  const preferences = v.code === 'Fachrichtung' ? ['Informatik'] : v.code === 'Fachbereich' ? ['4.1 Exakte Wissenschaften'] :
+  const preferences = v.code === 'Fachrichtung' ? [state.view === 'pyramid' ? 'Humanmedizin' : 'Informatik'] : v.code === 'Fachbereich' ? [state.view === 'pyramid' ? '5.1 Humanmedizin' : '4.1 Exakte Wissenschaften'] :
     v.code === 'Studienstufe' || v.code === 'Examensstufe' ? ['Bachelor'] : v.code === 'Hochschule' ? ['EPFL', 'ETHZ'] : [];
   return categories(v).find(c => preferences.includes(c.text))?.code || v.values[0];
 }
@@ -303,7 +303,7 @@ async function loadDataset(id, snapshotId, options = {}) {
       const oldUniversity = (previous?.variables || options.restoreVariables)?.find(v => v.code === 'Hochschule');
       const chosen = savedUniversities?.map(code => oldUniversity ?
         categories(variable('Hochschule')).find(c => c.text === oldUniversity.valueTexts[oldUniversity.values.indexOf(code)])?.code : code).filter(code => codes.includes(code));
-      setUniversities(savedUniversities?.length === 0 ? [] : chosen?.length ? chosen : [state.filters.Hochschule || preferred(variable('Hochschule'))]);
+      setUniversities(savedUniversities?.length === 0 ? [] : chosen?.length ? chosen : codes);
     }
     $('dataset').value = id;
     $('dataset-description').textContent = detail.id + ' · ' + detail.metadata.variables.find(v => v.time).valueTexts.at(-1);

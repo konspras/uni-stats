@@ -55,10 +55,14 @@ try {
   assert.equal(await evaluate(`state.view`), 'pyramid', 'Root URL defaults to Pyramid');
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.getElementById('chart').clientHeight`), 884, 'Desktop pyramid is 70% taller');
-  assert.equal(await evaluate(`document.querySelector('#filters select[data-dimension="Fachrichtung"] option:checked').textContent`),'Informatik (Computer Science)');
-  assert.equal(await evaluate(`document.getElementById('plot-title').textContent`),'Informatik (Computer Science)');
+  assert.equal(await evaluate(`document.querySelector('#filters select[data-dimension="Fachrichtung"] option:checked').textContent`),'Humanmedizin (Human Medicine)');
+  assert.equal(await evaluate(`document.getElementById('plot-title').textContent`),'Humanmedizin (Human Medicine)');
   assert.equal(await evaluate(`(()=>{const labels=[...document.querySelector('#filters select[data-dimension="Fachrichtung"]').options].filter(o=>o.value!=='__derived_all__').map(o=>variable('Fachrichtung').valueTexts[variable('Fachrichtung').values.indexOf(o.value)]);return labels.every((text,i)=>!i||labels[i-1].localeCompare(text,'de',{sensitivity:'base'})<=0);})()`),true,'Detailed subjects still sort by German names');
   assert.equal(await evaluate(`categoryFullLabel('Fachrichtung','New German subject')`),'New German subject','Unknown subjects retain German alone');
+  assert.deepEqual(await evaluate(`state.universities`),await evaluate(`variable('Hochschule').values`),'Default selects all universities');
+  // Use the original CS/EPFL fixture for the remaining count and interaction checks.
+  await evaluate(`state.filters.Fachrichtung=categories(variable('Fachrichtung')).find(c=>c.text==='Informatik').code;setUniversities([categories(variable('Hochschule')).find(c=>c.text==='EPFL').code]);renderFilters();renderCategories();updatePlot()`);await wait(ready);
+
 
   assert.equal(await evaluate(`(()=>{const c=categories(variable('Hochschule')).find(c=>c.text==='LS');return document.querySelector('#categories input[value="'+c.code+'"]').nextElementSibling.textContent;})()`),'LS — University of Lausanne');
   assert.equal(await evaluate(`(()=>{const c=categories(variable('Hochschule')).find(c=>c.text==='EPFL');const node=document.querySelector('#categories input[value="'+c.code+'"]').nextElementSibling;return node.textContent.length===40 && node.textContent.endsWith('...') && node.title==='EPFL — École polytechnique fédérale de Lausanne';})()`),true,'Long university labels are capped and keep the full name on hover');
@@ -369,6 +373,7 @@ try {
   assert.equal(await evaluate(`Math.abs(state.plotData.series.reduce((n,s)=>n+s.points.at(-1).value,0)-100)<1e-10`), true);
   assert.equal(await evaluate(`document.querySelector('#values-table tbody td:nth-child(2)').textContent.endsWith('%')`), true);
   await select('dataset','px-x-1503040100_101'); await wait(ready + ` && state.data.dataset==='px-x-1503040100_101'`);
+  await evaluate(`state.filters.Fachrichtung=categories(variable('Fachrichtung')).find(c=>c.text==='Informatik').code;setUniversities([categories(variable('Hochschule')).find(c=>c.text==='EPFL').code]);renderFilters();renderCategories();updatePlot()`);await wait(ready);
   assert.equal(await evaluate(`state.data.series.length`), 3);
   assert.deepEqual(await evaluate(`pyramidSides(state.data).sides.map(s=>s.points.at(-1).raw_value)`), ['172','35']);
   assert.equal(await evaluate(`document.getElementById('pyramid-period-note').textContent.includes('graduation year')`), true);
