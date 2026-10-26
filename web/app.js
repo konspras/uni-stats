@@ -84,15 +84,17 @@ function syncModes() {
 }
 function viewDatasets() {return state.catalog.filter(d => state.view !== 'pyramid' || isPyramidDataset(d));}
 function renderView() {
-  const pyramid = state.view === 'pyramid';
-  $('view-title').textContent = pyramid ? 'Pyramid' : 'Data explorer';
+  const pyramid = state.view === 'pyramid', grid = state.view === 'subjects';
+  $('subjects-view').hidden = !grid; document.querySelector('.explorer-layout').hidden = grid;
+  $('view-title').textContent = grid ? 'Subjects' : pyramid ? 'Pyramid' : 'Data explorer';
   $('plot-context').hidden = pyramid;
   document.title = 'UniStats · ' + $('view-title').textContent;
-  for (const view of ['pyramid', 'explorer']) {
+  for (const view of ['pyramid', 'subjects', 'explorer']) {
     const active = view === state.view, tab = $(view + '-tab');
     tab.classList.toggle('active-tab', active);
     if (active) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
   }
+  if (grid) return;
   $('university-heading').hidden = !pyramid;
   $('category-search').placeholder = pyramid ? 'Find a university…' : 'Find a category…';
   $('compare-field').hidden = pyramid; $('compare-categories').hidden = false; $('pyramid-split').hidden = !pyramid;
@@ -108,7 +110,7 @@ function renderView() {
   syncModes();
 }
 function captureSelection() {
-  if (!state.detail) return null;
+  if (!state.detail || state.view === 'subjects') return null;
   return {dataset:state.detail.id, snapshot:state.detail.snapshot_id, filters:{...state.filters}, compare:state.compare,
     values:[...state.values], from:timeVariable().values[Number($('from').value)], to:timeVariable().values[Number($('to').value)],
     fromLabel:timeVariable().valueTexts[Number($('from').value)], toLabel:timeVariable().valueTexts[Number($('to').value)],
@@ -133,7 +135,12 @@ function selectionError(message) {
   $('chart').setAttribute('aria-busy','false'); $('legend').replaceChildren();
   for (const tag of ['thead','tbody']) $('values-table').querySelector(tag).replaceChildren();
 }
+let subjectGrid;
+function subjectsView() {
+  return subjectGrid ||= new SubjectGrid({api,catalog:()=>state.catalog,onError:error,translate:text=>state.subjectTranslations[text]});
+}
 async function loadView(saved) {
+  if (state.view === 'subjects') {error('');await subjectsView().show();return;}
   try {
     const shared = state.view === 'pyramid' ? SelectionURL.read(location.hash) : null;
     if (shared && !viewDatasets().some(d=>d.id===shared.dataset)) throw Error('The dataset in this shared pyramid is unavailable. Use Reset view to start again.');
@@ -148,7 +155,11 @@ async function switchView() {
   if (!state.catalog.length) return;
   const view = SelectionURL.view(location.hash);
   if (view === state.view && !location.hash.startsWith('#pyramid?')) {updateSelectionURL();return;}
-  if (view !== state.view) {state.views[state.view] = captureSelection(); state.view = view;}
+  if (view !== state.view) {
+    if (state.view === 'subjects') subjectGrid?.hide();else state.views[state.view] = captureSelection();
+    state.plotController?.abort(); state.datasetController?.abort(); ++state.generation; ++state.plotSequence;
+    state.view = view;
+  }
   renderView(); await loadView(state.views[view]);
 }
 function renderSplit() {
@@ -564,10 +575,10 @@ $('period-slider').addEventListener('pointerdown', event => {
   move(event); slider.addEventListener('pointermove', move); slider.addEventListener('pointerup', finish); slider.addEventListener('pointercancel', finish);
 });
 for (const id of ['normalize', 'percentage']) $(id).addEventListener('change', () => {syncSubjectMode(); if (state.data) renderResults();});
-$('reset').addEventListener('click', () => {$('stack-universities').checked = false; $('stack-subjects').checked = false; $('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = defaultDataset(); if (id) {$('dataset').value = id; loadDataset(id);}});
+$('reset').addEventListener('click', () => {if(state.view === 'subjects'){subjectsView().reset();return;}$('stack-universities').checked = false; $('stack-subjects').checked = false; $('normalize').checked = false; $('percentage').checked = false; syncModes(); const id = defaultDataset(); if (id) {$('dataset').value = id; loadDataset(id);}});
 let resizeTimer;
 window.addEventListener('resize', () => {clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
-  if (state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.plotData || state.data);
+  if (state.view !== 'subjects' && state.data && $('chart').getAttribute('aria-busy') === 'false') drawChart(state.plotData || state.data);
 }, 100);});
 async function init() {
   try {
@@ -610,6 +621,7 @@ refreshUpdateStatus();
 setInterval(refreshUpdateStatus,60_000);
 
 $('data-mode').addEventListener('change', async () => {
+  if (state.view === 'subjects') subjectGrid?.hide();
   const selection = state.detail ? captureSelection() : null;
   const restoreVariables = state.detail?.metadata.variables;
   state.plotController?.abort(); state.datasetController?.abort();
@@ -620,7 +632,8 @@ $('data-mode').addEventListener('change', async () => {
     const result = await api('/api/datasets'); state.catalog = result.datasets;
     renderView();
     // CSV mode always resets historical snapshot IDs to the latest export.
-    if (selection && state.catalog.some(d => d.id === selection.dataset)) {delete selection.snapshot; await loadDataset(selection.dataset, undefined, {restore:selection,restoreVariables});}
+    if (state.view === 'subjects') await subjectsView().reload();
+    else if (selection && state.catalog.some(d => d.id === selection.dataset)) {delete selection.snapshot; await loadDataset(selection.dataset, undefined, {restore:selection,restoreVariables});}
     else await loadDataset(defaultDataset());
     await refreshUpdateStatus();
   } catch(e) {error(e.message); $('chart').setAttribute('aria-busy', 'false');}

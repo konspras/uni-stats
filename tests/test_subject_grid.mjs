@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import vm from 'node:vm';
+const model=vm.runInNewContext(await readFile(new URL('../web/pyramid.js',import.meta.url),'utf8')+'\n'+await readFile(new URL('../web/subject-grid.js',import.meta.url),'utf8')+'\nsubjectGridModel');
+const subjects=['Small','Large','Zero','Missing'];
+const values=[[[100,2,0,1],[1,20,0,null]],[[0,3,0,1],[2,30,0,4]],[[0,0,0,0],[0,1,0,0]]];
+const data={compare:'Geschlecht',periods:['2024','2025'],series:['Mann','Frau','Geschlecht unbekannt'].map((label,i)=>({code:String(i),label,
+  points:values[i].map((parts,j)=>({period_code:String(j),period:String(2024+j),subject_segments:parts.map((value,k)=>({code:String(k),label:subjects[k],value,raw_value:value===null?null:String(value)}))}))}))};
+const source=structuredClone(data),result=model(data);
+assert.deepEqual(Array.from(result.cards,c=>c.label),['Large','Small','Zero','Missing'],'Rank by last year, with incomplete totals last');
+assert.equal(result.cards[0].total,51,'Unknown gender is included in subject totals');
+assert.equal(result.maximum,100,'Shared maximum includes all visible years, not just the latest');
+assert.equal(result.unknown,true);assert.equal(result.cards.at(-1).total,null,'Missing never becomes zero');
+assert.equal(result.cards[2].total,0);assert.deepEqual(data,source,'Source observations are unchanged');
+const recent={...data,periods:['2025'],series:data.series.map(s=>({...s,points:s.points.slice(-1)}))};
+assert.equal(model(recent).maximum,30,'Scale follows the displayed interval');
+const nationality={...data,compare:'Staatsangehörigkeit (Kategorie)',series:data.series.slice(0,2).map((s,i)=>({...s,label:i?'Ausland':'Schweiz'}))};
+assert.equal(model(nationality).cards[0].total,50);assert.equal(model(nationality).unknown,false);
+const zero={...data,series:data.series.map(s=>({...s,points:s.points.map(p=>({...p,subject_segments:p.subject_segments.map(c=>({...c,value:0,raw_value:'0'}))}))}))};
+assert.equal(model(zero).maximum,1);assert.equal(model(zero).cards.length,4,'Zero subjects are retained');
+console.log('PASS: subject grid ranking, common scale, selected intervals, unknown categories, missing/zero distinctions, nationality and source immutability.');

@@ -242,7 +242,7 @@ try {
   // Pyramid is a separate tab, with its own selection state and a flow-only catalog.
   await send('Emulation.setDeviceMetricsOverride', {width:1360,height:1100,deviceScaleFactor:1,mobile:false});
   await evaluate(`document.getElementById('pyramid-tab').click()`); await wait(ready + ` && state.view==='pyramid' && state.data.dataset==='px-x-1502040100_123'`);
-  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tabs a')].map(a=>a.textContent)`), ['Pyramid','Data explorer']);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tabs a')].map(a=>a.textContent)`), ['Pyramid','Subjects','Data explorer']);
   assert.equal(await evaluate(`document.getElementById('pyramid-tab').getAttribute('aria-current')`), 'page');
   assert.equal(await evaluate(`document.querySelectorAll('#dataset option').length`), 6);
   assert.equal(await evaluate(`viewDatasets().every(d=>['Bachelor entrants','Degrees'].includes(d.group))`), true);

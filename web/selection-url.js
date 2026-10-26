@@ -2,7 +2,7 @@
 (function(root) {
 'use strict';
 const splits = {gender:'Geschlecht', nationality:'Staatsangehörigkeit (Kategorie)'};
-function view(hash) {return hash.split('?')[0] === '#explorer' ? 'explorer' : 'pyramid';}
+function view(hash) {const tab=hash.split('?')[0];return tab==='#subjects' ? 'subjects':tab==='#explorer' ? 'explorer':'pyramid';}
 function read(hash) {
   if (!hash.startsWith('#pyramid?') || !hash.slice(9)) return null;
   const p = new URLSearchParams(hash.slice(hash.indexOf('?')+1));
