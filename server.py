@@ -46,7 +46,7 @@ class Handler(SimpleHTTPRequestHandler):
             # Serve only known public assets; never expose the database or repository.
             public_data = (ROOT / 'web' / unquote(url.path).lstrip('/')).resolve()
             is_data = public_data.is_relative_to((ROOT / 'web/data').resolve()) and public_data.is_file()
-            if not is_data and url.path not in ('/data-provider.js', '/static-query.js', '/static-worker.js', '/backend.json', '/', '/index.html', '/app.js', '/normalize.js', '/pyramid.js', '/subjects.js', '/subject-translations.json', '/style.css', '/favicon.svg'):
+            if not is_data and url.path not in ('/selection-url.js', '/data-provider.js', '/static-query.js', '/static-worker.js', '/backend.json', '/', '/index.html', '/app.js', '/normalize.js', '/pyramid.js', '/subjects.js', '/subject-translations.json', '/style.css', '/favicon.svg'):
                 self.send_error(404)
                 return
             return super().do_GET()

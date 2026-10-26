@@ -127,3 +127,13 @@ Failure retries wait 1, 2, 4, 8, 16, then 24 hours, capped at 24 hours. The regu
 The header displays the last successful check or an amber warning. Open it to inspect worker activity, last attempt/success, latest snapshot, next scheduled check/retry and the error. `/api/update-status` is read-only and the browser refreshes it every minute. Collector output goes to `journalctl --user -u uni-stats.service`. A metadata-only manual dry run remains available as `python3 scripts/fetch_bfs.py --check-only`; it cannot download observations. The background worker uses the normal fetch mode, which skips observations when there are no additions.
 
 Verification: scheduler tests use the real collector with offline source fixtures to exercise unchanged-source skips, new-period downloads, failures, backoff, restart catch-up, worker ownership and DST. Browser tests verify live worker activity, Sunday 15:00 Zurich timing, and header warning/recovery display. The deployed next scheduled check can be independently confirmed with `curl http://localhost:8768/api/update-status`.
+
+## Share pyramid selections
+
+The pyramid keeps the address bar synchronized with every plot setting. Copy the URL to share the dataset, measure, selected universities, gender/nationality split, all dimension filters, explicit year labels, percentages and university/subject stacking. Links use a versioned `#pyramid?v=1&…` fragment and work on GitHub Pages without backend routing. Search text and hover position are not plot settings and are omitted.
+
+Opening a link restores controls and data after loading the dataset metadata. Links always select the latest report; local historical snapshot IDs and database mode are not embedded. Year labels are stored rather than numeric positions, so new reporting periods do not shift an existing selection. All universities is stored as All; explicit subsets and an empty selection also round-trip. Missing datasets/categories/measures/years and malformed or unsupported links show an error rather than silently plotting a different selection; Reset view recovers.
+
+Filter edits replace the current history entry without reloading or adding an entry for every slider movement. Tab switches retain normal Back/Forward navigation, and URL state takes precedence over remembered selections when returning through a shared pyramid link. Data explorer URLs remain unchanged.
+
+`web/selection-url.js` contains serialization and metadata validation. Run `node tests/test_selection_url.mjs` for round-trip/validation checks and `node tests/browser_urls.mjs` against the static test server under `/uni-stats/` for fresh-load, navigation, all controls, and invalid-link recovery checks.
