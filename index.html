@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore historical Swiss university statistics from BFS.">
-  <title>UniStats · Pyramid</title>
+  <title>UniStats · Subjects</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script src="normalize.js" defer></script>
@@ -24,11 +24,11 @@
         <div class="update-status-panel"><strong>Automatic data updates</strong><p>Every Sunday at 15:00 · Europe/Zurich</p><dl id="update-status-details"></dl><p id="update-status-error" role="status" hidden></p><p>Charts use the last successfully collected snapshot.</p></div>
       </details></div>
   </header>
-  <nav class="tabs" aria-label="Main navigation"><a id="pyramid-tab" class="active-tab" aria-current="page" href="#pyramid">Pyramid</a><a id="subjects-tab" href="#subjects">Subjects</a><a id="explorer-tab" href="#explorer">Data explorer</a></nav>
+  <nav class="tabs" aria-label="Main navigation"><a id="subjects-tab" class="active-tab" aria-current="page" href="#subjects">Subjects</a><a id="pyramid-tab" href="#pyramid">Pyramid</a><a id="explorer-tab" href="#explorer">Data explorer</a></nav>
   <main>
-    <section class="intro"><h1 id="view-title">Pyramid</h1><button id="reset" class="secondary-button" type="button">Reset view <span aria-hidden="true">↺</span></button></section>
+    <section class="intro"><h1 id="view-title">Subjects</h1><button id="reset" class="secondary-button" type="button">Reset view <span aria-hidden="true">↺</span></button></section>
     <div id="error" class="error" role="alert" hidden></div>
-    <section id="subjects-view" hidden aria-label="Subject pyramids">
+    <section id="subjects-view" aria-label="Subject pyramids">
       <div class="panel subjects-controls" aria-label="Subject chart controls">
         <label class="field">Metric<select id="subjects-metric"><option>Bachelor entrants</option><option>Degrees</option></select></label>
         <label class="field">Split by<select id="subjects-split"><option value="Geschlecht">Gender</option><option value="Staatsangehörigkeit (Kategorie)">Nationality</option></select></label>
@@ -42,7 +42,7 @@
       <p id="subjects-unknown" class="helper" hidden>Unknown categories are included in subject totals but are not assigned to either side.</p>
       <div id="subjects-grid" class="subjects-grid" aria-busy="false"></div>
     </section>
-    <div class="explorer-layout">
+    <div class="explorer-layout" hidden>
       <aside class="panel controls" aria-label="Data selections">
         <div class="panel-heading"><h2>Selection</h2><span id="dataset-count" class="pill">— datasets</span></div>
         <label class="field">Dataset<select id="dataset" disabled><option>Loading datasets…</option></select></label>
