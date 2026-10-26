@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-const model=vm.runInNewContext(await readFile(new URL('../web/pyramid.js',import.meta.url),'utf8')+'\n'+await readFile(new URL('../web/subject-grid.js',import.meta.url),'utf8')+'\nsubjectGridModel');
+const model=vm.runInNewContext(await readFile(new URL('../web/normalize.js',import.meta.url),'utf8')+'\n'+await readFile(new URL('../web/pyramid.js',import.meta.url),'utf8')+'\n'+await readFile(new URL('../web/subject-grid.js',import.meta.url),'utf8')+'\nsubjectGridModel');
 const subjects=['Small','Large','Zero','Missing'];
 const values=[[[100,2,0,1],[1,20,0,null]],[[0,3,0,1],[2,30,0,4]],[[0,0,0,0],[0,1,0,0]]];
 const data={compare:'Geschlecht',periods:['2024','2025'],series:['Mann','Frau','Geschlecht unbekannt'].map((label,i)=>({code:String(i),label,
@@ -19,3 +19,17 @@ assert.equal(model(nationality).cards[0].total,50);assert.equal(model(nationalit
 const zero={...data,series:data.series.map(s=>({...s,points:s.points.map(p=>({...p,subject_segments:p.subject_segments.map(c=>({...c,value:0,raw_value:'0'}))}))}))};
 assert.equal(model(zero).maximum,1);assert.equal(model(zero).cards.length,4,'Zero subjects are retained');
 console.log('PASS: subject grid ranking, common scale, selected intervals, unknown categories, missing/zero distinctions, nationality and source immutability.');
+
+const shares=model(data,true);
+assert.equal(shares.maximum,100);assert.equal(shares.percentage,true);
+assert.deepEqual(Array.from(shares.cards,c=>[c.code,c.total]),Array.from(result.cards,c=>[c.code,c.total]),'Percentage mode preserves count ranking and card totals');
+const large=shares.cards.find(c=>c.label==='Large');
+assert.equal(large.series[0].points[1].value,20,'Tooltip series retains counts');
+assert(Math.abs(large.plotSeries[0].points[1].value-20/51*100)<1e-10,'Shares use each subject/year total including unknown gender');
+assert(Math.abs(large.plotSeries.reduce((sum,s)=>sum+s.points[1].value,0)-100)<1e-10);
+assert(shares.cards.find(c=>c.label==='Zero').plotSeries.every(s=>s.points.every(p=>p.value===null)),'Zero-total years stay gaps');
+assert(shares.cards.find(c=>c.label==='Missing').plotSeries.every(s=>s.points[1].value===null),'An incomplete year has no partial shares');
+assert(shares.percentageMissing>0);
+assert.equal(model(nationality,true).cards[0].plotSeries[0].points[1].value,40,'Nationality percentages use the same composition rule');
+assert.deepEqual(data,source,'Calculating shares never changes source counts');
+console.log('PASS: subject percentage compositions, unknown-category denominators, missing/zero gaps, count totals, ranking and immutable source data.');

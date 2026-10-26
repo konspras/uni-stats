@@ -65,14 +65,27 @@ try {
   const direct=await evaluate(`api('/api/series?query='+encodeURIComponent(JSON.stringify({dataset:subjectGrid.detail.id,compare:subjectGrid.data.compare,values:subjectGrid.data.series.map(s=>s.code),measure:subjectGrid.measure,filters:{...subjectGrid.filters,Fachrichtung:${JSON.stringify(top.code)}}})))`);
   assert.equal(direct.series[0].points.at(-1).value,top.left);
   assert.equal(direct.series.reduce((sum,s)=>sum+s.points.at(-1).value,0),top.total);
+  const rawCards=await evaluate(`subjectGrid.model.cards.map(c=>[c.code,c.total])`);
+  const rawData=await evaluate(`JSON.stringify(subjectGrid.data)`);
+  assert.equal(await evaluate(`window.percentageRequests=0;window.percentageApi=subjectGrid.api;subjectGrid.api=(...args)=>{window.percentageRequests++;return window.percentageApi(...args);};$('subjects-percentage').click();window.percentageRequests`),0,'Percentage toggle needs no additional fetch');
+  await wait(`document.querySelector('.subject-card svg')`);
+  assert.equal(await evaluate(`subjectGrid.model.maximum`),100);
+  assert.equal(await evaluate(`subjectGrid.model.percentage`),true);
+  assert.deepEqual(await evaluate(`subjectGrid.model.cards.map(c=>[c.code,c.total])`),rawCards,'Percentage mode retains raw totals and ranking');
+  assert.equal(await evaluate(`JSON.stringify(subjectGrid.data)`),rawData,'Source counts are unchanged');
+  assert.equal(await evaluate(`subjectGrid.model.cards.every(c=>c.plotSeries[0].points.every((p,j)=>p.value===null||Math.abs(c.plotSeries.reduce((sum,s)=>sum+s.points[j].value,0)-100)<1e-9))`),true,'Every complete subject/year sums to 100%');
+  assert.equal(await evaluate(`document.querySelector('.subject-mini-axis').textContent`),'100%');
+  assert.equal(await evaluate(`SelectionURL.read(document.querySelector('.subject-card').hash).percentage`),true,'Card carries percentage mode into detailed view');
   await evaluate(`document.querySelector('.subject-card').focus();document.querySelector('.subject-card').dispatchEvent(new KeyboardEvent('keydown',{key:'End'}))`);
   assert.equal(await evaluate(`document.querySelector('.subject-tooltip').hidden`),false);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.subject-card .subject-tooltip-row b')].slice(0,2).map(n=>n.textContent)`),await evaluate(`subjectGrid.model.sideCodes.map(code=>subjectGrid.number(subjectGrid.model.cards[0].series.find(s=>s.code===code).points.at(-1).value))`),'Tooltip keeps absolute counts');
   const firstLink=await evaluate(`document.querySelector('.subject-card').href`);
   assert(firstLink.includes('#pyramid?v=1&'));
   const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/uni-stats-subject-grid-desktop.png',Buffer.from(shot.data,'base64'));
   await evaluate(`document.querySelector('.subject-card').click()`);await wait(ready+` && state.view==='pyramid'`);
   assert.equal(await evaluate(`state.filters.Fachrichtung`),top.code,'Card opens the matching subject');
   assert.equal(await evaluate(`state.universities.length`),15);
+  assert.equal(await evaluate(`$('percentage').checked`),true,'Detailed pyramid inherits percentage mode');
   await evaluate(`history.back()`);await wait(gridReady+` && state.view==='subjects'`);
   await select('subjects-metric','Degrees');await wait(gridReady+` && subjectGrid.detail.group==='Degrees'`);
   assert.equal(await evaluate(`$('subjects-qualification-field').hidden`),false);
@@ -105,6 +118,7 @@ try {
   await evaluate(`$('reset').click()`);await wait(gridReady+` && subjectGrid.detail.group==='Bachelor entrants'`);
   assert.equal(await evaluate(`subjectGrid.model.periods.length`),46);
   assert.equal(await evaluate(`$('subjects-qualification-field').hidden`),true);
+  assert.equal(await evaluate(`$('subjects-percentage').checked`),false,'Reset restores count mode');
   assert.deepEqual(errors,[],'No browser console errors');
   console.log('PASS: subject grid, all 77 subjects, sorting/common scale, independent source totals, lazy rendering, card links, flow/split/qualification controls, range caching, navigation and mobile layout. Initial static load: '+initial.toFixed(0)+' ms');
 } finally {socket.close();}
